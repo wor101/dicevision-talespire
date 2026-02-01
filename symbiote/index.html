@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DiceVision</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1>DiceVision</h1>
+      <div id="status-indicator" class="status disconnected">
+        <span class="status-dot"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </header>
+
+    <!-- Connection Panel -->
+    <section class="panel" id="connection-panel">
+      <h2>Session Code</h2>
+      <div class="input-group">
+        <input
+          type="text"
+          id="session-code"
+          placeholder="ABC123"
+          maxlength="6"
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <button id="connect-btn" class="btn btn-primary">Connect</button>
+      </div>
+      <p class="help-text">Enter the session code from DiceVision Settings</p>
+    </section>
+
+    <!-- Options Panel (hidden until connected) -->
+    <section class="panel" id="options-panel" style="display: none;">
+      <h2>Options</h2>
+
+      <div class="option-row">
+        <label for="chat-announce">
+          <input type="checkbox" id="chat-announce" checked>
+          Announce in chat
+        </label>
+      </div>
+
+      <div class="option-row">
+        <label for="roll-target">Send rolls to:</label>
+        <select id="roll-target">
+          <option value="board">Board (everyone)</option>
+          <option value="gm">GM only</option>
+        </select>
+      </div>
+
+      <div class="option-row">
+        <label for="roll-name">Roll label:</label>
+        <input type="text" id="roll-name" value="Physical Dice" placeholder="Physical Dice">
+      </div>
+    </section>
+
+    <!-- Recent Rolls Panel (hidden until connected) -->
+    <section class="panel" id="rolls-panel" style="display: none;">
+      <h2>Recent Rolls</h2>
+      <div id="rolls-list" class="rolls-list">
+        <p class="empty-state">No rolls yet</p>
+      </div>
+    </section>
+
+    <!-- Disconnect Button (hidden until connected) -->
+    <div id="disconnect-container" style="display: none;">
+      <button id="disconnect-btn" class="btn btn-secondary">Disconnect</button>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="error-display" style="display: none;">
+      <span id="error-message"></span>
+      <button id="error-dismiss" class="btn-icon">&times;</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

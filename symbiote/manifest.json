@@ -1,0 +1,24 @@
+{
+  "manifestVersion": 1,
+  "name": "DiceVision - Physical Dice Integration",
+  "entryPoint": "/index.html",
+  "author": "DiceVision",
+  "type": "panel",
+  "interactivity": {
+    "isInteractive": true
+  },
+  "api": {
+    "version": "0.1",
+    "subscriptions": {
+      "symbiote": {
+        "onStateChangeEvent": "handleSymbioteStateChange"
+      }
+    }
+  },
+  "version": "1.0.0",
+  "environment": {
+    "capabilities": ["runInBackground"],
+    "extras": ["colorStyles"]
+  },
+  "description": "Connect physical dice rolls from DiceVision camera to Talespire dice tray"
+}
