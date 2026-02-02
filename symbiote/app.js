@@ -66,10 +66,16 @@ class DiceVisionBridge {
     this.pingInterval = null;
     this.isIntentionalClose = false;
 
+    // Roll mode state
+    this.continuousMode = false;     // Auto-re-register after rolls
+    this.pendingRollOnce = false;    // Waiting for single roll
+    this.isWaiting = false;          // Currently registered as waiting
+
     // Callbacks
     this.onStatusChange = null;
     this.onRoll = null;
     this.onError = null;
+    this.onModeChange = null;        // Callback for UI updates
   }
 
   /**
@@ -121,8 +127,13 @@ class DiceVisionBridge {
     this.updateStatus('connected');
     this.startPingInterval();
 
-    // Register as waiting for rolls (required to receive roll data)
-    this.send({ type: 'waiting', app_id: 'talespire' });
+    // Only register as waiting if continuous mode is enabled
+    if (this.continuousMode) {
+      this.registerWaiting();
+    }
+
+    // Notify UI of mode state
+    this.notifyModeChange();
   }
 
   /**
@@ -192,9 +203,23 @@ class DiceVisionBridge {
       this.onRoll(rollData);
     }
 
-    // Re-register as waiting for the next roll
+    // Re-register based on current mode
     // (waiting state is cleared after each roll delivery)
-    this.send({ type: 'waiting', app_id: 'talespire' });
+    if (this.pendingRollOnce) {
+      // Single roll completed - don't re-register
+      this.pendingRollOnce = false;
+      this.isWaiting = false;
+      debugLog('Roll Once completed, returning to idle');
+    } else if (this.continuousMode) {
+      // Continuous mode - re-register for next roll
+      this.registerWaiting();
+    } else {
+      // Not waiting for more rolls
+      this.isWaiting = false;
+    }
+
+    // Notify UI of mode change
+    this.notifyModeChange();
   }
 
   /**
@@ -263,6 +288,10 @@ class DiceVisionBridge {
     this.isIntentionalClose = true;
     this.sessionCode = null;
 
+    // Reset mode state on disconnect
+    this.pendingRollOnce = false;
+    this.isWaiting = false;
+
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -276,6 +305,7 @@ class DiceVisionBridge {
     }
 
     this.updateStatus('disconnected');
+    this.notifyModeChange();
   }
 
   /**
@@ -348,6 +378,94 @@ class DiceVisionBridge {
    */
   isConnected() {
     return this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  // ========== Roll Mode Methods ==========
+
+  /**
+   * Register as waiting for rolls.
+   */
+  registerWaiting() {
+    if (!this.isConnected()) {
+      debugLog('Cannot register waiting - not connected');
+      return;
+    }
+
+    debugLog('Registering as waiting for rolls');
+    this.send({ type: 'waiting', app_id: 'talespire' });
+    this.isWaiting = true;
+  }
+
+  /**
+   * Cancel waiting state.
+   */
+  cancelWaiting() {
+    if (!this.isConnected()) {
+      return;
+    }
+
+    debugLog('Cancelling waiting state');
+    this.send({ type: 'cancel', app_id: 'talespire' });
+    this.isWaiting = false;
+  }
+
+  /**
+   * Enable continuous mode - automatically re-register after each roll.
+   */
+  enableContinuousMode() {
+    debugLog('Enabling continuous mode');
+    this.continuousMode = true;
+    this.pendingRollOnce = false; // Clear any pending single roll
+
+    if (this.isConnected() && !this.isWaiting) {
+      this.registerWaiting();
+    }
+
+    this.notifyModeChange();
+  }
+
+  /**
+   * Disable continuous mode.
+   */
+  disableContinuousMode() {
+    debugLog('Disabling continuous mode');
+    this.continuousMode = false;
+
+    // If we're waiting but not for a single roll, cancel
+    if (this.isWaiting && !this.pendingRollOnce) {
+      this.cancelWaiting();
+    }
+
+    this.notifyModeChange();
+  }
+
+  /**
+   * Request a single roll capture.
+   */
+  rollOnce() {
+    if (!this.isConnected()) {
+      this.handleError('Not connected');
+      return;
+    }
+
+    if (this.isWaiting) {
+      debugLog('Already waiting for a roll');
+      return;
+    }
+
+    debugLog('Roll Once requested');
+    this.pendingRollOnce = true;
+    this.registerWaiting();
+    this.notifyModeChange();
+  }
+
+  /**
+   * Notify UI of mode state change.
+   */
+  notifyModeChange() {
+    if (this.onModeChange) {
+      this.onModeChange(this.continuousMode, this.isWaiting, this.pendingRollOnce);
+    }
   }
 }
 
@@ -534,6 +652,12 @@ class UIController {
       errorDisplay: document.getElementById('error-display'),
       errorMessage: document.getElementById('error-message'),
       errorDismiss: document.getElementById('error-dismiss'),
+      // Roll mode elements
+      modePanel: document.getElementById('mode-panel'),
+      continuousModeToggle: document.getElementById('continuous-mode'),
+      rollOnceBtn: document.getElementById('roll-once-btn'),
+      waitingDot: document.getElementById('waiting-dot'),
+      waitingText: document.getElementById('waiting-text'),
     };
 
     this.init();
@@ -549,6 +673,8 @@ class UIController {
     this.bridge.onStatusChange = (status) => this.handleStatusChange(status);
     this.bridge.onRoll = (rollData) => this.handleRoll(rollData);
     this.bridge.onError = (message) => this.showError(message);
+    this.bridge.onModeChange = (continuous, waiting, pendingOnce) =>
+      this.handleModeChange(continuous, waiting, pendingOnce);
 
     // Set up event listeners
     this.elements.connectBtn.addEventListener('click', () => this.handleConnect());
@@ -566,6 +692,20 @@ class UIController {
     this.elements.chatAnnounce.addEventListener('change', () => this.saveOptions());
     this.elements.rollTarget.addEventListener('change', () => this.saveOptions());
     this.elements.rollName.addEventListener('change', () => this.saveOptions());
+
+    // Roll mode event listeners
+    this.elements.continuousModeToggle.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        this.bridge.enableContinuousMode();
+      } else {
+        this.bridge.disableContinuousMode();
+      }
+      this.saveOptions();
+    });
+
+    this.elements.rollOnceBtn.addEventListener('click', () => {
+      this.bridge.rollOnce();
+    });
 
     // Load saved state
     await this.loadSavedState();
@@ -598,6 +738,11 @@ class UIController {
             }
             if (options.rollName) {
               this.elements.rollName.value = options.rollName;
+            }
+            // Load continuous mode setting
+            if (options.continuousMode !== undefined) {
+              this.elements.continuousModeToggle.checked = options.continuousMode;
+              this.bridge.continuousMode = options.continuousMode;
             }
           } catch (err) {
             console.error('[DiceVision] Failed to parse saved options:', err);
@@ -633,6 +778,7 @@ class UIController {
           chatAnnounce: this.elements.chatAnnounce.checked,
           rollTarget: this.elements.rollTarget.value,
           rollName: this.elements.rollName.value,
+          continuousMode: this.elements.continuousModeToggle.checked,
         };
         await TS.localStorage.campaign.setBlob(
           CONFIG.STORAGE_KEY_OPTIONS,
@@ -687,6 +833,7 @@ class UIController {
 
     // Update UI visibility based on connection state
     const isConnected = status === 'connected';
+    this.elements.modePanel.style.display = isConnected ? 'block' : 'none';
     this.elements.optionsPanel.style.display = isConnected ? 'block' : 'none';
     this.elements.rollsPanel.style.display = isConnected ? 'block' : 'none';
     this.elements.disconnectContainer.style.display = isConnected ? 'block' : 'none';
@@ -694,6 +841,15 @@ class UIController {
     // Update button states
     this.elements.connectBtn.disabled = status === 'connecting' || isConnected;
     this.elements.sessionCodeInput.disabled = status === 'connecting' || isConnected;
+
+    // Update mode controls on connect/disconnect
+    if (isConnected) {
+      this.elements.continuousModeToggle.disabled = false;
+      this.updateRollOnceButton();
+    } else {
+      this.elements.continuousModeToggle.disabled = true;
+      this.elements.rollOnceBtn.disabled = true;
+    }
   }
 
   /**
@@ -782,6 +938,58 @@ class UIController {
    */
   hideError() {
     this.elements.errorDisplay.style.display = 'none';
+  }
+
+  /**
+   * Handle mode state changes from the bridge.
+   * @param {boolean} continuous - Whether continuous mode is enabled
+   * @param {boolean} waiting - Whether currently registered as waiting
+   * @param {boolean} pendingOnce - Whether waiting for a single roll
+   */
+  handleModeChange(continuous, waiting, pendingOnce) {
+    // Update toggle state (in case changed externally)
+    this.elements.continuousModeToggle.checked = continuous;
+
+    // Update Roll Once button state
+    this.updateRollOnceButton();
+
+    // Update waiting status indicator
+    if (waiting) {
+      if (pendingOnce) {
+        // Waiting for single roll
+        this.elements.waitingDot.className = 'waiting-dot single';
+        this.elements.waitingText.textContent = 'Waiting for single roll...';
+      } else if (continuous) {
+        // Continuous mode active
+        this.elements.waitingDot.className = 'waiting-dot continuous';
+        this.elements.waitingText.textContent = 'Continuous mode active';
+      } else {
+        // Shouldn't happen, but handle gracefully
+        this.elements.waitingDot.className = 'waiting-dot';
+        this.elements.waitingText.textContent = 'Waiting for rolls';
+      }
+    } else {
+      // Not waiting
+      this.elements.waitingDot.className = 'waiting-dot';
+      this.elements.waitingText.textContent = 'Not waiting for rolls';
+    }
+  }
+
+  /**
+   * Update the Roll Once button state based on current mode.
+   */
+  updateRollOnceButton() {
+    const bridge = this.bridge;
+    // Disable when:
+    // - Continuous mode is ON (use toggle instead)
+    // - Already waiting (either continuous or single roll pending)
+    // - Not connected
+    const shouldDisable =
+      bridge.continuousMode ||
+      bridge.isWaiting ||
+      !bridge.isConnected();
+
+    this.elements.rollOnceBtn.disabled = shouldDisable;
   }
 }
 

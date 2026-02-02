@@ -34,6 +34,32 @@
       <p class="help-text">Enter the session code from DiceVision Settings</p>
     </section>
 
+    <!-- Roll Mode Panel (hidden until connected) -->
+    <section class="panel" id="mode-panel" style="display: none;">
+      <h2>Roll Mode</h2>
+
+      <div class="mode-row">
+        <label class="toggle-label">
+          <span>Continuous Mode</span>
+          <div class="toggle-switch">
+            <input type="checkbox" id="continuous-mode">
+            <span class="toggle-slider"></span>
+          </div>
+        </label>
+      </div>
+
+      <div class="mode-row">
+        <button id="roll-once-btn" class="btn btn-primary" disabled>
+          Roll Once
+        </button>
+      </div>
+
+      <div class="waiting-status">
+        <span class="waiting-dot" id="waiting-dot"></span>
+        <span id="waiting-text">Not waiting for rolls</span>
+      </div>
+    </section>
+
     <!-- Options Panel (hidden until connected) -->
     <section class="panel" id="options-panel" style="display: none;">
       <h2>Options</h2>
