@@ -18,6 +18,24 @@ The symbiote:
 4. Calls `TS.dice.sendDiceResult()` to display in dice tray
 5. Optionally sends chat announcement via `TS.chat.send()`
 
+## Reference Links
+
+### Talespire Symbiote Documentation
+| Resource | URL |
+|----------|-----|
+| Main Docs | https://symbiote-docs.talespire.com/ |
+| API Reference (v0.1) | https://symbiote-docs.talespire.com/api_doc_v0_1.md.html |
+| Manifest Reference (v1) | https://symbiote-docs.talespire.com/manifest_v1.md.html |
+| Getting Started | https://symbiote-docs.talespire.com/getting_started.md.html |
+| Extras (Themes/Fonts/Icons) | https://symbiote-docs.talespire.com/extras.md.html |
+| FAQ | https://symbiote-docs.talespire.com/faq.md.html |
+| Example Symbiotes (GitHub) | https://github.com/Bouncyrock/symbiotes-examples |
+
+### DiceVision Backend
+| Resource | URL |
+|----------|-----|
+| WebSocket Bridge Endpoint | `wss://dicevision.dirtyowlbear.com/api/bridge/{session_code}` |
+
 ## Project Structure
 
 ```
