@@ -63,16 +63,24 @@ dicevision-talespire/
 wss://dicevision.dirtyowlbear.com/api/bridge/{session_code}
 ```
 
+### Session Code Format
+
+- **Length**: 8 characters
+- **Character set**: `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (excludes ambiguous 0/O/1/I/L)
+- **Display format**: `XKRM-4N7B` (dash after 4th character for readability)
+- **Normalization**: Uppercase, strip dashes before use (e.g., `xkrm-4n7b` → `XKRM4N7B`)
+- **DB constraint**: `^[A-Z2-9]{8}$`
+
 ### Messages Received (Server → Client)
 
 ```javascript
 // Connection confirmed
-{ "type": "connected", "session_code": "ABC123", "waiting": false, "waiting_apps": [] }
+{ "type": "connected", "session_code": "XKRM4N7B", "waiting": false, "waiting_apps": [] }
 
 // Dice roll result
 {
   "type": "roll",
-  "session_code": "ABC123",
+  "session_code": "XKRM4N7B",
   "data": {
     "dice": [{"type": "d20", "value": 15}, {"type": "d6", "value": 4}],
     "total": 19,
