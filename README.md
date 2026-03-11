@@ -31,7 +31,7 @@ The symbiote will be available on mod.io for one-click installation.
    - Open https://dicevision.dirtyowlbear.com in your browser
    - Log in or create an account
    - Go to Settings → Codex
-   - Click "Create Session" to get a 6-character code (e.g., `ABC123`)
+   - Click "Create Session" to get an 8-character code (e.g., `XKRM-4N7B`)
 
 2. **Connect the Symbiote**
    - Open Talespire and launch the DiceVision symbiote

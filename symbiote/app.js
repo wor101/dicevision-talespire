@@ -80,18 +80,25 @@ class DiceVisionBridge {
 
   /**
    * Connect to the DiceVision bridge with the given session code.
-   * @param {string} sessionCode - 6-character session code
+   * @param {string} sessionCode - 8-character session code
    */
   connect(sessionCode) {
     debugLog('Connecting to bridge', { sessionCode: sessionCode });
 
-    if (!sessionCode || sessionCode.length < 4) {
+    if (!sessionCode) {
       this.handleError('Invalid session code');
       return;
     }
 
     // Normalize session code (uppercase, no dashes)
     this.sessionCode = sessionCode.toUpperCase().replace(/-/g, '');
+
+    if (this.sessionCode.length !== 8) {
+      this.handleError('Session code must be 8 characters');
+      this.sessionCode = null;
+      return;
+    }
+
     this.isIntentionalClose = false;
     this.reconnectAttempts = 0;
 

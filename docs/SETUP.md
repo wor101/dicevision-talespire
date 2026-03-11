@@ -57,7 +57,7 @@ This guide walks you through setting up the DiceVision symbiote for Talespire.
 
 6. Click **Create Session**
 
-7. Copy the 6-character session code (e.g., `ABC123`)
+7. Copy the 8-character session code (e.g., `XKRM-4N7B`)
 
 ## Step 3: Connect the Symbiote
 
@@ -150,7 +150,7 @@ This is a DiceVision detection issue, not a Talespire issue:
 
 - Keep DiceVision open in a browser tab while playing
 - The symbiote runs in the background even when minimized
-- Session codes are case-insensitive (ABC123 = abc123)
+- Session codes are case-insensitive (XKRM4N7B = xkrm4n7b)
 - You can use the same session code for multiple Talespire campaigns
 
 ## Getting Help

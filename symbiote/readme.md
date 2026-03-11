@@ -6,7 +6,7 @@ Connect your physical dice rolls to Talespire! This symbiote receives dice recog
 
 1. Open DiceVision in your browser (https://dicevision.dirtyowlbear.com)
 2. Go to Settings → Codex and create a session
-3. Copy the 6-character session code
+3. Copy the 8-character session code
 4. Enter the code in this symbiote and click Connect
 
 ## Features
