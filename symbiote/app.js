@@ -87,6 +87,7 @@ class DiceVisionBridge {
 
     if (!sessionCode) {
       this.handleError('Invalid session code');
+      this.updateStatus('error');
       return;
     }
 
@@ -96,6 +97,9 @@ class DiceVisionBridge {
     if (this.sessionCode.length !== 8) {
       this.handleError('Session code must be 8 characters');
       this.sessionCode = null;
+      // Stale code from older 6-char format would otherwise re-fail every load.
+      this.clearSavedSession();
+      this.updateStatus('error');
       return;
     }
 
