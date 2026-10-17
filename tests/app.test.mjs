@@ -7,7 +7,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../symbiote/app.js', import.meta.url), 'utf8');
 const context = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {} }, window: {}, setTimeout, clearTimeout, setInterval, clearInterval });
 const app = vm.runInContext(`${source}
-;({ DiceVisionBridge, readDice, faceNumber, displayFace, summarizeDice, formatDiceString, convertToTalespireFormat, sendToTalespire })`, context);
+;({ DiceVisionBridge, UIController, readDice, faceNumber, displayFace, summarizeDice, formatDiceString, convertToTalespireFormat, sendToTalespire, parseStoredState, campaignStore, notifyOutsidePanel })`, context);
 
 let passes = 0;
 let failures = 0;
@@ -123,6 +123,103 @@ await test('sendToTalespire: tray gets numbers, chat gets faces as printed', asy
   } finally {
     delete context.TS;
   }
+});
+
+// ---------------------------------------------------------------------------
+// TaleSpire API as documented (symbiote-docs.talespire.com, API v0.1)
+// ---------------------------------------------------------------------------
+
+/** A TS stand-in: campaign storage holds ONE blob (no keys), calls are recorded. */
+function fakeTS({ blob = undefined, visible = true, notificationFails = false, chatFails = false } = {}) {
+  const calls = { setBlob: [], getBlob: [], chat: [], notifications: [], tray: [] };
+  let stored = blob;
+  context.TS = {
+    localStorage: { campaign: {
+      getBlob: async (...args) => { calls.getBlob.push(args); return stored; },
+      setBlob: async (...args) => { calls.setBlob.push(args); await new Promise(r => setTimeout(r, 1)); stored = args[0]; },
+      deleteBlob: async () => { stored = undefined; }
+    } },
+    chat: { send: async (msg, target) => { if (chatFails) throw { cause: 'invalidTarget' }; calls.chat.push([msg, target]); } },
+    dice: { sendDiceResult: async groups => { calls.tray.push(groups); return 'roll-1'; } },
+    symbiote: {
+      getIfThisSymbioteIsVisible: async () => visible,
+      sendNotification: async (title, body) => { if (notificationFails) throw { cause: 'symbioteManifestMissingInteropId' }; calls.notifications.push([title, body]); }
+    },
+    players: { whoAmI: async () => ({ id: 'player-me' }) }
+  };
+  app.campaignStore.cache = null;
+  app.campaignStore.queue = Promise.resolve();
+  return { calls, stored: () => stored };
+}
+
+await test('storage: one JSON blob, no keys; old keyed saves read as nothing saved', async () => {
+  check(JSON.stringify(app.parseStoredState('dicevision_options')) === '{}', 'pre-1.1.0 blob (a key name) is ignored');
+  check(JSON.stringify(app.parseStoredState('[1]')) === '{}' && JSON.stringify(app.parseStoredState(undefined)) === '{}', 'arrays and nothing');
+  check(app.parseStoredState('{"sessionCode":"XKRM4N7B"}').sessionCode === 'XKRM4N7B', 'a saved object');
+  const { calls, stored } = fakeTS({ blob: 'dicevision_session_code' });
+  check(JSON.stringify(await app.campaignStore.load()) === '{}', 'old blob loads as {}');
+  check(calls.getBlob[0].length === 0, `getBlob called without a key ${JSON.stringify(calls.getBlob)}`);
+  // A session save and an options save at the same moment both survive
+  await Promise.all([
+    app.campaignStore.update({ sessionCode: 'XKRM4N7B' }),
+    app.campaignStore.update({ options: { rollTarget: 'gm', continuousMode: true } })
+  ]);
+  check(calls.setBlob.every(args => args.length === 1 && typeof args[0] === 'string'), `setBlob(str) only ${JSON.stringify(calls.setBlob)}`);
+  const saved = JSON.parse(stored());
+  check(saved.sessionCode === 'XKRM4N7B' && saved.options?.rollTarget === 'gm', `both kept ${stored()}`);
+  await app.campaignStore.update({ sessionCode: null });
+  check(JSON.parse(stored()).options?.continuousMode === true && JSON.parse(stored()).sessionCode === null, 'clearing the code keeps the options');
+  delete context.TS;
+});
+
+await test('storage: a failing getBlob (e.g. notInCampaign) loads as nothing saved', async () => {
+  fakeTS();
+  context.TS.localStorage.campaign.getBlob = async () => { throw { cause: 'notInCampaign' }; };
+  check(JSON.stringify(await app.campaignStore.load()) === '{}', 'empty state');
+  delete context.TS;
+});
+
+await test('chat: GM only uses TaleSpire\'s "gms" keyword', async () => {
+  const { calls } = fakeTS();
+  await app.sendToTalespire({ dice: app.readDice([vtt('d20', '12')]), total: 12 }, { chatTarget: 'gm' });
+  await app.sendToTalespire({ dice: app.readDice([vtt('d20', '12')]), total: 12 }, { chatTarget: 'board' });
+  check(calls.chat[0]?.[1] === 'gms' && calls.chat[1]?.[1] === 'board', JSON.stringify(calls.chat));
+  delete context.TS;
+});
+
+await test('chat: a failed announcement doesn\'t count the roll as failed', async () => {
+  const { calls } = fakeTS({ chatFails: true });
+  const ok = await app.sendToTalespire({ dice: app.readDice([vtt('d20', '12')]), total: 12 }, { chatTarget: 'gm' });
+  check(ok === true && calls.tray.length === 1, `ok ${ok}, tray ${calls.tray.length}`);
+  delete context.TS;
+});
+
+await test('notifyOutsidePanel: nothing while visible; a notification when hidden; a whisper if that fails', async () => {
+  let { calls } = fakeTS({ visible: true });
+  check(await app.notifyOutsidePanel('msg') === 'visible' && calls.notifications.length === 0 && calls.chat.length === 0, 'visible');
+  ({ calls } = fakeTS({ visible: false }));
+  check(await app.notifyOutsidePanel('Couldn\'t read 1d8.') === 'notification' && calls.notifications[0]?.[1] === 'Couldn\'t read 1d8.', JSON.stringify(calls.notifications));
+  ({ calls } = fakeTS({ visible: false, notificationFails: true }));
+  check(await app.notifyOutsidePanel('Couldn\'t read 1d8.') === 'whisper' && calls.chat[0]?.[1] === 'player-me' && /Couldn't read 1d8/.test(calls.chat[0][0]), JSON.stringify(calls.chat));
+  delete context.TS;
+  check(await app.notifyOutsidePanel('x') === 'none', 'no TaleSpire API');
+});
+
+await test('unusable rolls notify outside the panel once until a roll goes through', async () => {
+  const { calls } = fakeTS({ visible: false });
+  const ui = Object.create(app.UIController.prototype);
+  Object.assign(ui, { showError: () => {}, addRecentRoll: () => {}, unusableNotified: false,
+    elements: { rollName: { value: 'Physical Dice' }, chatAnnounce: { checked: false }, rollTarget: { value: 'board' } } });
+  const unread = { dice: app.readDice([vtt('d8', '-1', false)]), total: 0 };
+  ui.handleUnusableRoll(unread, unread.dice);
+  ui.handleUnusableRoll(unread, unread.dice);
+  await new Promise(r => setTimeout(r, 5));
+  check(calls.notifications.length === 1, `once ${calls.notifications.length}`);
+  await ui.handleRoll({ dice: app.readDice([vtt('d8', '5')]), total: 5 });
+  ui.handleUnusableRoll(unread, unread.dice);
+  await new Promise(r => setTimeout(r, 5));
+  check(calls.notifications.length === 2, `again after a roll went through ${calls.notifications.length}`);
+  delete context.TS;
 });
 
 console.log(`\n${passes} checks passed, ${failures} failed`);

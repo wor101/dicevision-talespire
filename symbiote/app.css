@@ -8,10 +8,10 @@
 }
 
 body {
-  font-family: var(--ts-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
-  font-size: var(--ts-font-size, 14px);
-  color: var(--ts-text, #e0e0e0);
-  background: var(--ts-background, #1a1a2e);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--ts-color-primary, #e0e0e0);
+  background: var(--ts-background-primary, #1a1a2e);
   min-height: 100vh;
   padding: 12px;
 }
@@ -28,13 +28,13 @@ body {
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--ts-border, #333);
+  border-bottom: 1px solid var(--ts-accessibility-border, #333);
 }
 
 .header h1 {
   font-size: 18px;
   font-weight: 600;
-  color: var(--ts-text-bright, #fff);
+  color: var(--ts-color-primary, #fff);
 }
 
 /* Status Indicator */
@@ -45,7 +45,7 @@ body {
   font-size: 12px;
   padding: 4px 8px;
   border-radius: 12px;
-  background: var(--ts-background-alt, #252540);
+  background: var(--ts-background-secondary, #252540);
 }
 
 .status-dot {
@@ -79,8 +79,8 @@ body {
 
 /* Panels */
 .panel {
-  background: var(--ts-background-alt, #252540);
-  border: 1px solid var(--ts-border, #333);
+  background: var(--ts-background-secondary, #252540);
+  border: 1px solid var(--ts-accessibility-border, #333);
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 12px;
@@ -89,7 +89,7 @@ body {
 .panel h2 {
   font-size: 14px;
   font-weight: 600;
-  color: var(--ts-text-bright, #fff);
+  color: var(--ts-color-primary, #fff);
   margin-bottom: 12px;
 }
 
@@ -104,20 +104,20 @@ input[type="text"] {
   flex: 1;
   padding: 8px 12px;
   font-size: 14px;
-  border: 1px solid var(--ts-border, #333);
+  border: 1px solid var(--ts-accessibility-border, #333);
   border-radius: 4px;
-  background: var(--ts-input-background, #1a1a2e);
-  color: var(--ts-text, #e0e0e0);
+  background: var(--ts-background-tertiary, #1a1a2e);
+  color: var(--ts-color-primary, #e0e0e0);
   text-transform: uppercase;
 }
 
 input[type="text"]:focus {
   outline: none;
-  border-color: var(--ts-accent, #5865f2);
+  border-color: var(--ts-accent-primary, #5865f2);
 }
 
 input[type="text"]::placeholder {
-  color: var(--ts-text-muted, #666);
+  color: var(--ts-color-secondary, #666);
   text-transform: none;
 }
 
@@ -125,16 +125,16 @@ select {
   flex: 1;
   padding: 8px 12px;
   font-size: 14px;
-  border: 1px solid var(--ts-border, #333);
+  border: 1px solid var(--ts-accessibility-border, #333);
   border-radius: 4px;
-  background: var(--ts-input-background, #1a1a2e);
-  color: var(--ts-text, #e0e0e0);
+  background: var(--ts-background-tertiary, #1a1a2e);
+  color: var(--ts-color-primary, #e0e0e0);
   cursor: pointer;
 }
 
 select:focus {
   outline: none;
-  border-color: var(--ts-accent, #5865f2);
+  border-color: var(--ts-accent-primary, #5865f2);
 }
 
 /* Buttons */
@@ -154,7 +154,7 @@ select:focus {
 }
 
 .btn-primary {
-  background: var(--ts-accent, #5865f2);
+  background: var(--ts-accent-primary, #5865f2);
   color: #fff;
 }
 
@@ -163,33 +163,33 @@ select:focus {
 }
 
 .btn-secondary {
-  background: var(--ts-background, #1a1a2e);
-  color: var(--ts-text, #e0e0e0);
-  border: 1px solid var(--ts-border, #333);
+  background: var(--ts-button-background, #1a1a2e);
+  color: var(--ts-color-primary, #e0e0e0);
+  border: 1px solid var(--ts-accessibility-border, #333);
   width: 100%;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--ts-background-alt, #252540);
+  background: var(--ts-button-hover, #252540);
 }
 
 .btn-icon {
   background: none;
   border: none;
-  color: var(--ts-text-muted, #666);
+  color: var(--ts-color-secondary, #666);
   cursor: pointer;
   font-size: 18px;
   padding: 4px;
 }
 
 .btn-icon:hover {
-  color: var(--ts-text, #e0e0e0);
+  color: var(--ts-color-primary, #e0e0e0);
 }
 
 /* Help Text */
 .help-text {
   font-size: 12px;
-  color: var(--ts-text-muted, #888);
+  color: var(--ts-color-secondary, #888);
 }
 
 /* Options */
@@ -230,7 +230,7 @@ select:focus {
 }
 
 .empty-state {
-  color: var(--ts-text-muted, #666);
+  color: var(--ts-color-secondary, #666);
   font-style: italic;
   text-align: center;
   padding: 16px 0;
@@ -242,9 +242,9 @@ select:focus {
   align-items: center;
   padding: 8px;
   margin-bottom: 6px;
-  background: var(--ts-background, #1a1a2e);
+  background: var(--ts-background-primary, #1a1a2e);
   border-radius: 4px;
-  border-left: 3px solid var(--ts-accent, #5865f2);
+  border-left: 3px solid var(--ts-accent-primary, #5865f2);
 }
 
 .roll-item.not-sent {
@@ -268,7 +268,7 @@ select:focus {
 
 .die-result {
   padding: 2px 6px;
-  background: var(--ts-background-alt, #252540);
+  background: var(--ts-background-secondary, #252540);
   border-radius: 3px;
   font-size: 12px;
   font-weight: 500;
@@ -277,12 +277,12 @@ select:focus {
 .roll-total {
   font-size: 16px;
   font-weight: 700;
-  color: var(--ts-text-bright, #fff);
+  color: var(--ts-color-primary, #fff);
 }
 
 .roll-time {
   font-size: 11px;
-  color: var(--ts-text-muted, #666);
+  color: var(--ts-color-secondary, #666);
   margin-top: 4px;
 }
 
@@ -292,7 +292,7 @@ select:focus {
   bottom: 12px;
   left: 12px;
   right: 12px;
-  background: #d9534f;
+  background: var(--ts-color-danger, #d9534f);
   color: #fff;
   padding: 10px 12px;
   border-radius: 6px;
@@ -325,17 +325,17 @@ select:focus {
 }
 
 .rolls-list::-webkit-scrollbar-track {
-  background: var(--ts-background, #1a1a2e);
+  background: var(--ts-background-primary, #1a1a2e);
   border-radius: 3px;
 }
 
 .rolls-list::-webkit-scrollbar-thumb {
-  background: var(--ts-border, #333);
+  background: var(--ts-accessibility-border, #333);
   border-radius: 3px;
 }
 
 .rolls-list::-webkit-scrollbar-thumb:hover {
-  background: var(--ts-text-muted, #666);
+  background: var(--ts-color-secondary, #666);
 }
 
 /* Roll Mode Panel */
@@ -378,8 +378,8 @@ select:focus {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--ts-background, #1a1a2e);
-  border: 1px solid var(--ts-border, #333);
+  background: var(--ts-background-primary, #1a1a2e);
+  border: 1px solid var(--ts-accessibility-border, #333);
   border-radius: 12px;
   transition: background-color 0.2s, border-color 0.2s;
   cursor: pointer;
@@ -392,14 +392,14 @@ select:focus {
   height: 18px;
   left: 2px;
   bottom: 2px;
-  background: var(--ts-text-muted, #666);
+  background: var(--ts-color-secondary, #666);
   border-radius: 50%;
   transition: transform 0.2s, background-color 0.2s;
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background: var(--ts-accent, #5865f2);
-  border-color: var(--ts-accent, #5865f2);
+  background: var(--ts-accent-primary, #5865f2);
+  border-color: var(--ts-accent-primary, #5865f2);
 }
 
 .toggle-switch input:checked + .toggle-slider:before {
@@ -418,10 +418,10 @@ select:focus {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--ts-background, #1a1a2e);
+  background: var(--ts-background-primary, #1a1a2e);
   border-radius: 4px;
   font-size: 12px;
-  color: var(--ts-text-muted, #888);
+  color: var(--ts-color-secondary, #888);
 }
 
 .waiting-dot {

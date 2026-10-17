@@ -78,7 +78,7 @@ While connected, you can adjust these settings:
 | Option | Description |
 |--------|-------------|
 | **Announce in chat** | Send roll results to the chat window |
-| **Send rolls to** | Choose "Board (everyone)" or "GM only" |
+| **Chat announcement to** | Choose "Board (everyone)" or "GM only". The dice tray result is always visible to everyone; this only sets who gets the chat line |
 | **Roll label** | Customize the name shown (default: "Physical Dice") |
 
 Settings are saved per campaign.

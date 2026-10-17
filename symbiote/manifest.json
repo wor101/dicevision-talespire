@@ -1,11 +1,17 @@
 {
   "manifestVersion": 1,
   "name": "DiceVision - Physical Dice Integration",
+  "summary": "Connect physical dice rolls from the DiceVision camera to the TaleSpire dice tray",
+  "descriptionFilePath": "/readme.md",
   "entryPoint": "/index.html",
-  "author": "DiceVision",
-  "type": "panel",
-  "interactivity": {
-    "isInteractive": true
+  "version": "1.1.0",
+  "license": "MIT",
+  "about": {
+    "website": "https://dicevision.dirtyowlbear.com",
+    "authors": ["DiceVision"]
+  },
+  "icons": {
+    "64x64": "/icons/icon_64.png"
   },
   "api": {
     "version": "0.1",
@@ -13,12 +19,14 @@
       "symbiote": {
         "onStateChangeEvent": "handleSymbioteStateChange"
       }
+    },
+    "interop": {
+      "id": "3dbbbb8c-9e16-4711-b277-94de54d86594"
     }
   },
-  "version": "1.0.0",
   "environment": {
+    "webViewBackgroundColor": "#1a1a2e",
     "capabilities": ["runInBackground"],
     "extras": ["colorStyles"]
-  },
-  "description": "Connect physical dice rolls from DiceVision camera to Talespire dice tray"
+  }
 }
