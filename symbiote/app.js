@@ -268,7 +268,7 @@ class DiceVisionBridge {
     let msg;
     try {
       msg = JSON.parse(event.data);
-    } catch (err) {
+    } catch {
       debugLog('Failed to parse message', event.data);
       return;
     }
@@ -731,7 +731,7 @@ function escapeHtml(text) {
  * @returns {Object} Talespire dice result group
  */
 function convertToTalespireFormat(rollData, rollName = 'Physical Dice') {
-  const { dice, total } = rollData;
+  const { dice } = rollData;
 
   if (!dice || dice.length === 0) {
     return null;
@@ -1311,6 +1311,7 @@ class UIController {
 // ============================================================================
 
 // IMPORTANT: Must be a global function, not a scoped variable
+/* exported handleSymbioteStateChange */
 function handleSymbioteStateChange(event) {
   debugLog('Symbiote state change', event);
 

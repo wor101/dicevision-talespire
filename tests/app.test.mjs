@@ -126,7 +126,7 @@ await test('Roll Once while disconnected: an unusable roll reports not waiting',
 await test('re-registers waiting even if onUnusableRoll throws', () => {
   const { b, log } = bridge({ once: true });
   b.onUnusableRoll = () => { throw new Error('UI broke'); };
-  try { b.handleRoll({ dice: [vtt('d8', '-1', false)], total: 0 }); } catch {}
+  try { b.handleRoll({ dice: [vtt('d8', '-1', false)], total: 0 }); } catch { /* the check below is what matters */ }
   check(JSON.stringify(log.sent) === '["waiting"]' && b.isWaiting, JSON.stringify(log.sent));
 });
 

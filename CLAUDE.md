@@ -46,11 +46,20 @@ dicevision-talespire/
 │   ├── icons/
 │   │   └── icon_64.png       # Required icon (64x64)
 │   └── readme.md             # Description shown in Talespire
+├── tests/
+│   └── app.test.mjs          # Unit tests (npm test)
+├── scripts-dev/
+│   └── build-zip.sh          # Release zip (dist/DiceVision.zip)
+├── .github/
+│   ├── workflows/tests.yml   # CI: lint + test (required checks)
+│   ├── workflows/release.yml # Tag → GitHub release with DiceVision.zip
+│   └── dependabot.yml        # npm + Actions, 7-day cooldown
 ├── docs/
 │   └── SETUP.md              # Detailed setup instructions
 ├── README.md                 # User documentation
 ├── CLAUDE.md                 # This file
 ├── LICENSE                   # MIT License
+├── eslint.config.js, package.json  # Dev tooling only (ESLint 9)
 └── .gitignore
 ```
 
@@ -302,10 +311,19 @@ The `colorStyles` extra injects these variables (the only ones TaleSpire documen
 
 Unit tests: `npm test` (`tests/app.test.mjs` loads `app.js` into a Node vm with a stand-in `TS` that follows the documented API, e.g. one storage blob with no keys, and fake DOM elements). It also checks the manifest and that `app.css` only uses documented theme variables. Run them after any change to `symbiote/`.
 
-## Deployment
+## CI and Branch Rules
 
-1. Update version in `manifest.json`
-2. Create icon if not exists (`icons/icon_64.png`)
-3. Test thoroughly in Talespire
-4. Create release on GitHub
-5. (Optional) Publish to mod.io
+- **Tests** workflow on every PR and push to `main`: `lint` (`npm ci`, `npm run lint`, manifest JSON check) and `test` (`npm test`, plus a check that the release zip builds with `DiceVision/manifest.json` and no dev files). Both are required checks in the `main` ruleset, so keep the job names.
+- **Ruleset "Main"** (same as the Foundry and Codex repos): changes to `main` go through a PR with 1 approval and resolved review threads; `lint` and `test` must pass on an up-to-date branch; no deleting or force-pushing `main`; repository admins can bypass (that's how the owner merges their own PRs).
+- **Dependabot**: weekly npm (ESLint) and GitHub Actions updates, with a 7-day cooldown before adopting new versions.
+- Regenerated `package-lock.json`? Check it with `npx -p npm@10.8.2 npm ci`, the npm version CI uses.
+
+## Releasing
+
+1. Merge the changes to `main`, then tag: `git tag v1.2.0 && git push origin v1.2.0`.
+2. The **Release** workflow runs the tests, builds `dist/DiceVision.zip` with `scripts-dev/build-zip.sh` (one `DiceVision/` folder, `manifest.json` inside, `version` set from the tag), and creates the GitHub release. Hyphenated tags (`v1.2.0-rc.1`) become pre-releases.
+3. `https://github.com/wor101/dicevision-talespire/releases/latest/download/DiceVision.zip` always serves the newest normal release (the README links it).
+4. Test the zip in TaleSpire: unzip it into the Symbiotes folder (back up the installed one; keep its `.localStorage` and `.debug` folders, where TaleSpire keeps the symbiote's saved settings and log).
+5. mod.io: upload the same zip (see README).
+
+The `version` in `symbiote/manifest.json` on `main` is only the fallback for manual copies; the release stamps the tag's version.
