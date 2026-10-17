@@ -107,7 +107,7 @@ Each die is the shared VTT format (dice-vision PR #420, `docs/integrations/VTT.m
 - `value`: its number (pips as dots, `"00"` and `"0"` both 0), -1 when unreadable. This goes to the dice tray.
 - `readable`: `false` when the camera couldn't read the die.
 
-`readDice()` in `app.js` reads every roll on arrival. Older servers sent `{type, value}` only, so `face` and `readable` are worked out from `value` then. A die is unreadable unless its value is a whole number >= 0 and its type is one the tray takes (d4, d6, d8, d10, d12, d20, d100); entries that aren't objects, or have no type, read as unreadable `d?` dice. A roll with an unreadable die, or no dice (including a `roll` message without `data`), isn't sent to the tray: `handleRoll` registers waiting again in Roll Once and continuous mode (the server drops our waiting flag with each roll), then calls `onUnusableRoll(rollData, unreadable, waiting)`. The panel shows "Couldn't read 1d8. Roll again; still waiting." (or "Not sent to the dice tray." when not waiting) and a "not sent" entry in Recent Rolls. If the tray rejects a roll, the panel says so and Recent Rolls marks it. Chat announcements and Recent Rolls show faces as printed (`1d10(00)`).
+`readDice()` in `app.js` reads every roll on arrival. Older servers sent `{type, value}` only, so `face` and `readable` are worked out from `value` then. A die is unreadable unless its value is a whole number >= 0 that the die can show (`inRangeForDie`: d4 1–4, …, d20 1–20; d10 0–10 or a percentile tens 20–90; d100 0–100) and its type is one the tray takes (d4, d6, d8, d10, d12, d20, d100); entries that aren't objects, or have no type, read as unreadable `d?` dice. A die read as a value it can't show (a d4 of 12, from a misread) is marked `outOfRange`: the tray doesn't check values and showed such a d4 in April 2026. A roll with an unreadable or out-of-range die, or no dice (including a `roll` message without `data`), isn't sent to the tray: `handleRoll` registers waiting again in Roll Once and continuous mode (the server drops our waiting flag with each roll), then calls `onUnusableRoll(rollData, unreadable, waiting)`. The panel shows "Couldn't read 1d8. Roll again; still waiting." (or "Not sent to the dice tray." when not waiting) and a "not sent" entry in Recent Rolls. If the tray rejects a roll, the panel says so and Recent Rolls marks it. Chat announcements and Recent Rolls show faces as printed (`1d10(00)`).
 
 ### Messages Sent (Client → Server)
 
@@ -294,6 +294,7 @@ The `colorStyles` extra injects these variables (the only ones TaleSpire documen
 - [ ] "Symbiote" indicator shows on rolls
 - [ ] A die the camera can't read: not sent, panel says which die, the next roll (Roll Once too) is sent
 - [ ] Pip d6s show their dots in the tray and chat
+- [ ] A die read as an impossible value (e.g. a d4 of 12): not sent, panel says "Read as impossible: d4 showing 12"
 - [ ] Session code and options are remembered after closing and reopening the symbiote (auto-connects)
 - [ ] Chat announcement set to GM only reaches the GM
 - [ ] Panel closed + a die the camera can't read: a TaleSpire notification (once), and clicking it opens the panel; also when the panel was open for the first unreadable roll and closed afterwards

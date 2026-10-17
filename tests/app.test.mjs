@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 const source = readFileSync(new URL('../symbiote/app.js', import.meta.url), 'utf8');
 const context = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {} }, window: {}, setTimeout, clearTimeout, setInterval, clearInterval });
 const app = vm.runInContext(`${source}
-;({ DiceVisionBridge, UIController, describeError, readDice, escapeHtml, faceNumber, displayFace, summarizeDice, formatDiceString, convertToTalespireFormat, sendToTalespire, parseStoredState, campaignStore, notifyOutsidePanel })`, context);
+;({ DiceVisionBridge, UIController, describeError, inRangeForDie, readDice, escapeHtml, faceNumber, displayFace, summarizeDice, formatDiceString, convertToTalespireFormat, sendToTalespire, parseStoredState, campaignStore, notifyOutsidePanel })`, context);
 
 let passes = 0;
 let failures = 0;
@@ -454,6 +454,39 @@ await test('CSS: only documented colorStyles variables', () => {
   const used = [...new Set(css.match(/--ts-[a-z-]+/g) ?? [])];
   check(used.every(v => documented.includes(v)), `undocumented: ${used.filter(v => !documented.includes(v))}`);
   check(!/accessibility-border/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')), '--ts-accessibility-border is transparent in the default theme; not used for borders');
+});
+
+// ---------------------------------------------------------------------------
+// Values a die can't show (the tray took a d4 of 12 from a misread)
+// ---------------------------------------------------------------------------
+
+await test('inRangeForDie: each die\'s faces; d10 0-10 and percentile tens', () => {
+  const ok = [['d4', 1], ['d4', 4], ['d6', 6], ['d8', 8], ['d12', 12], ['d20', 20], ['d10', 0], ['d10', 10], ['d10', 30], ['d10', 90], ['d100', 100], ['d100', 0]];
+  const bad = [['d4', 12], ['d4', 0], ['d6', 0], ['d6', 7], ['d8', 9], ['d12', 13], ['d20', 21], ['d10', 35], ['d10', 100], ['d100', 101]];
+  check(ok.every(([t, v]) => app.inRangeForDie(t, v)), `in range ${JSON.stringify(ok.filter(([t, v]) => !app.inRangeForDie(t, v)))}`);
+  check(bad.every(([t, v]) => !app.inRangeForDie(t, v)), `out of range ${JSON.stringify(bad.filter(([t, v]) => app.inRangeForDie(t, v)))}`);
+});
+
+await test('readDice marks an impossible value outOfRange, unreadable, and keeps its face', () => {
+  const [d4, d20, pct] = app.readDice([vtt('d4', '12'), vtt('d20', '20'), vtt('d10', '30')]);
+  check(!d4.readable && d4.outOfRange === true && d4.value === -1 && d4.face === '12', JSON.stringify(d4));
+  check(d20.readable && !('outOfRange' in d20) && pct.readable, 'in-range dice untouched');
+  check(app.displayFace(d4) === '12' && app.displayFace(app.readDice([vtt('d8', '-1', false)])[0]) === '?', 'shown as read, not "?"');
+  check(JSON.stringify(app.readDice([d4])) === JSON.stringify([d4]), `the same when read again ${JSON.stringify(app.readDice([d4]))}`);
+});
+
+await test('Roll Once: an impossible die isn\'t sent; the panel says what was read', async () => {
+  const { b, log } = bridge({ once: true });
+  b.handleRoll({ dice: [vtt('d20', '14'), vtt('d4', '12')], total: 26 });
+  check(log.rolls.length === 0 && log.unusable.length === 1 && b.pendingRollOnce && JSON.stringify(log.sent) === '["waiting"]', JSON.stringify(log));
+  fakeTS({ visible: true });
+  const { ui, errors } = fakeUI();
+  await ui.handleUnusableRoll(log.unusable[0].roll, log.unusable[0].unreadable, true);
+  check(errors[0] === 'Read as impossible: d4 showing 12. Roll again; still waiting.', errors[0]);
+  const mixed = app.readDice([vtt('d8', '-1', false), vtt('d4', '12'), vtt('d6', '9')]);
+  await ui.handleUnusableRoll({ dice: mixed, total: 0 }, mixed, false);
+  check(errors[1] === "Couldn't read 1d8. Read as impossible: d4 showing 12, d6 showing 9. Not sent to the dice tray.", errors[1]);
+  delete context.TS;
 });
 
 console.log(`\n${passes} checks passed, ${failures} failed`);
