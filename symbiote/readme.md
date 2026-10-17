@@ -17,7 +17,7 @@ Connect your physical dice rolls to Talespire! This symbiote receives dice recog
 - Automatic reconnection on connection loss
 - Session code and options saved per campaign; reconnects when reopened
 - Pip d6s count their dots
-- If the camera couldn't read a die, the roll isn't sent: the panel (or a TaleSpire notification when the panel is closed) says which die, and it keeps waiting for your reroll
+- If the camera couldn't read a die, or read a value it can't show, the roll isn't sent: the panel (or a TaleSpire notification when the panel is closed) says which die, and it keeps waiting for your reroll
 
 ## Supported Dice
 
