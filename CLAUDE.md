@@ -82,12 +82,19 @@ wss://dicevision.dirtyowlbear.com/api/bridge/{session_code}
   "type": "roll",
   "session_code": "XKRM4N7B",
   "data": {
-    "dice": [{"type": "d20", "value": 15}, {"type": "d6", "value": 4}],
+    "dice": [
+      {"type": "d20", "value": 15, "face": "15", "readable": true},
+      {"type": "d6", "value": 4, "face": "pip_4", "readable": true},
+      {"type": "d8", "value": -1, "face": "-1", "readable": false}
+    ],
     "total": 19,
     "roll_id": "uuid",
     "timestamp": "2026-01-11T12:05:30.123Z"
   }
 }
+
+// Recognition found no dice while we were waiting (waiting state unchanged; ignored)
+{ "type": "no_dice", "session_code": "XKRM4N7B" }
 
 // Keepalive response
 { "type": "pong" }
@@ -96,10 +103,19 @@ wss://dicevision.dirtyowlbear.com/api/bridge/{session_code}
 { "type": "error", "message": "Invalid or expired session code" }
 ```
 
+Each die is the shared VTT format (dice-vision PR #420, `docs/integrations/VTT.md` there):
+
+- `face`: the face as printed: `"7"`, `"00"`, `"30"`, `"pip_4"` (pip d6), `"-1"` when unread.
+- `value`: its number (pips as dots, `"00"` and `"0"` both 0), -1 when unreadable. This goes to the dice tray.
+- `readable`: `false` when the camera couldn't read the die.
+
+`readDice()` in `app.js` reads every roll on arrival. Older servers sent `{type, value}` only, so `face` and `readable` are worked out from `value` then. A die is unreadable unless its value is a whole number >= 0 and its type is one the tray takes (d4, d6, d8, d10, d12, d20, d100); entries that aren't objects, or have no type, read as unreadable `d?` dice. A roll with an unreadable die, or no dice (including a `roll` message without `data`), isn't sent to the tray: `handleRoll` registers waiting again in Roll Once and continuous mode (the server drops our waiting flag with each roll), then calls `onUnusableRoll(rollData, unreadable, waiting)`. The panel shows "Couldn't read 1d8. Roll again; still waiting." (or "Not sent to the dice tray." when not waiting) and a "not sent" entry in Recent Rolls. If the tray rejects a roll, the panel says so and Recent Rolls marks it. Chat announcements and Recent Rolls show faces as printed (`1d10(00)`).
+
 ### Messages Sent (Client → Server)
 
 ```javascript
-// Register as waiting for rolls (sent on connect and after each roll received)
+// Register as waiting for rolls: Roll Once, and in continuous mode on connect and
+// after each roll; also after a roll that couldn't be read while still waiting
 { "type": "waiting", "app_id": "talespire" }
 
 // Keepalive ping (every 30 seconds)
@@ -253,6 +269,10 @@ The symbiote uses Talespire CSS variables for theme integration:
 - [ ] Multiple dice types (e.g., 1d20 + 2d6)
 - [ ] All die types: d4, d6, d8, d10, d12, d20
 - [ ] "Symbiote" indicator shows on rolls
+- [ ] A die the camera can't read: not sent, panel says which die, the next roll (Roll Once too) is sent
+- [ ] Pip d6s show their dots in the tray and chat
+
+Unit tests: `npm test` (`tests/app.test.mjs` loads `app.js` into a Node vm with no Talespire or DOM). Run them after any change to `app.js`.
 
 ## Deployment
 

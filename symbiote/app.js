@@ -74,6 +74,7 @@ class DiceVisionBridge {
     // Callbacks
     this.onStatusChange = null;
     this.onRoll = null;
+    this.onUnusableRoll = null;      // A roll with an unreadable die, or none: (rollData, unreadable, waiting)
     this.onError = null;
     this.onModeChange = null;        // Callback for UI updates
   }
@@ -169,10 +170,16 @@ class DiceVisionBridge {
         break;
 
       case 'roll':
-        // Dice roll received
-        if (msg.data) {
-          this.handleRoll(msg.data);
+        // Dice roll received. Without data it's still a roll as far as the
+        // server's waiting flag goes, so it's handled (as a roll with no dice).
+        if (!msg.data) {
+          console.warn('[DiceVision] Roll message without data:', msg);
         }
+        this.handleRoll(msg.data);
+        break;
+
+      case 'no_dice':
+        // Recognition found no dice; the server keeps our waiting flag
         break;
 
       case 'waiting':
@@ -205,10 +212,33 @@ class DiceVisionBridge {
 
   /**
    * Handle a dice roll from DiceVision.
-   * @param {Object} rollData - { dice: [{type, value}], total, roll_id, timestamp }
+   * @param {Object} rollData - { dice: [{type, value, face, readable}], total, roll_id, timestamp }
    */
   handleRoll(rollData) {
     console.log('[DiceVision] Roll received:', rollData);
+    const rawDice = rollData && rollData.dice;
+    if (rawDice !== undefined && !Array.isArray(rawDice)) {
+      console.warn('[DiceVision] Roll dice isn\'t a list, reading it as no dice:', rawDice);
+    }
+    rollData = { ...rollData, dice: readDice(rawDice) };
+
+    // A die the camera couldn't read would show in the tray as a wrong value,
+    // and no dice would send an empty roll: don't send it, and keep waiting
+    // for the reroll in Roll Once and continuous mode. The server dropped our
+    // waiting flag when it delivered this roll, so register again. That
+    // happens before the callback, so a UI error can't leave us unregistered.
+    const unreadable = rollData.dice.filter(d => !d.readable);
+    if (!rollData.dice.length || unreadable.length) {
+      this.isWaiting = false;
+      if (this.pendingRollOnce || this.continuousMode) {
+        this.registerWaiting();
+      }
+      this.notifyModeChange();
+      if (this.onUnusableRoll) {
+        this.onUnusableRoll(rollData, unreadable, this.isWaiting);
+      }
+      return;
+    }
 
     if (this.onRoll) {
       this.onRoll(rollData);
@@ -484,11 +514,85 @@ class DiceVisionBridge {
 // Talespire Integration
 // ============================================================================
 
+/** The die kinds TS.dice.sendDiceResult takes */
+const TRAY_KINDS = new Set(['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']);
+
+/**
+ * The number a DiceVision face string stands for: "7" -> 7, "00" -> 0,
+ * "pip_4" -> 4, "-1" -> -1. null for any other symbol.
+ * @param {*} face
+ * @returns {number|null}
+ */
+function faceNumber(face) {
+  const s = String(face === undefined || face === null ? '' : face).trim();
+  const pips = /^pip_(-?\d+)$/.exec(s);
+  if (pips) return Number(pips[1]);
+  return /^-?\d+$/.test(s) ? Number(s) : null;
+}
+
+/**
+ * Read the dice of a DiceVision roll. The server sends each die as
+ * {type, value, face, readable} (dice-vision PR #420): face is the face as
+ * printed ("7", "00", "pip_4", "-1" when unread), value its number. Older
+ * servers sent {type, value} only, so face and readable come from value then.
+ * A die is readable only when `readable` is true or missing, its value is a
+ * whole number >= 0, and its type is one the dice tray takes (TRAY_KINDS);
+ * otherwise its value is -1. Anything that isn't a die object reads as an
+ * unreadable `d?` die, as does a die with no type. A non-array reads as no dice.
+ * @param {Array} dice
+ * @returns {Array<{type: string, value: number, face: string, readable: boolean}>}
+ */
+function readDice(dice) {
+  if (!Array.isArray(dice)) return [];
+  return dice.map((d) => {
+    if (!d || typeof d !== 'object') return { type: 'd?', value: -1, face: '-1', readable: false };
+    const type = typeof d.type === 'string' && d.type.trim() ? d.type.trim().toLowerCase() : 'd?';
+    const raw = d.face !== undefined && d.face !== null ? d.face : d.value;
+    const face = String(raw === undefined || raw === null ? '-1' : raw).trim();
+    const value = typeof d.value === 'number' ? d.value : faceNumber(face);
+    if (!TRAY_KINDS.has(type)) console.warn('[DiceVision] Die type the dice tray can\'t take:', d);
+    const readable = (d.readable === undefined || d.readable === true)
+      && Number.isInteger(value) && value >= 0 && TRAY_KINDS.has(type);
+    return { type, value: readable ? value : -1, face, readable };
+  });
+}
+
+/**
+ * A die as shown to people: the face as printed ("00" stays "00"), a pip
+ * die's dot count, "?" for a die the camera couldn't read.
+ * @param {{value: number, face: string, readable: boolean}} die
+ * @returns {string}
+ */
+function displayFace(die) {
+  if (!die.readable) return '?';
+  return /^pip_/.test(die.face) ? String(die.value) : die.face;
+}
+
+/**
+ * "2d8, 1d20" from a list of dice.
+ * @param {Array<{type: string}>} dice
+ * @returns {string}
+ */
+function summarizeDice(dice) {
+  const counts = new Map();
+  for (const die of dice) counts.set(die.type, (counts.get(die.type) || 0) + 1);
+  return [...counts].map(([type, n]) => `${n}${type}`).join(', ');
+}
+
+/**
+ * Escape text for innerHTML (die types and faces come from the server).
+ * @param {string} text
+ * @returns {string}
+ */
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 /**
  * Convert DiceVision roll format to Talespire dice result format.
  *
- * DiceVision format:
- *   { dice: [{type: "d20", value: 15}, {type: "d6", value: 4}], total: 19 }
+ * DiceVision format, after readDice (only readable dice reach here):
+ *   { dice: [{type: "d20", value: 15, face: "15", readable: true}, ...], total: 19 }
  *
  * Talespire format (single dice type):
  *   { name: "Physical Dice", result: { kind: "d20", results: [15] } }
@@ -584,7 +688,8 @@ async function sendToTalespire(rollData, options = {}) {
     // Send to dice tray
     const diceResult = await TS.dice.sendDiceResult([resultGroup]);
     if (diceResult && diceResult.error) {
-      debugLog('Dice result error', diceResult);
+      console.error('[DiceVision] Dice tray rejected the roll:', diceResult, resultGroup);
+      return false;
     }
     debugLog('Roll sent to dice tray', { result: diceResult });
 
@@ -606,14 +711,15 @@ async function sendToTalespire(rollData, options = {}) {
     debugLog('Roll sent successfully');
     return true;
   } catch (err) {
-    debugLog('Failed to send to Talespire', { error: err.message });
+    console.error('[DiceVision] Failed to send to Talespire:', err);
     return false;
   }
 }
 
 /**
- * Format dice array as a readable string (e.g., "1d20(15) + 2d6(4, 3)")
- * @param {Array} dice - Array of {type, value}
+ * Format dice array as a readable string (e.g., "1d20(15) + 2d6(4, 3)"),
+ * with faces as printed ("1d10(00)")
+ * @param {Array} dice - Array of read dice (see readDice)
  * @returns {string}
  */
 function formatDiceString(dice) {
@@ -624,7 +730,7 @@ function formatDiceString(dice) {
     if (!groups[type]) {
       groups[type] = [];
     }
-    groups[type].push(die.value);
+    groups[type].push(displayFace(die));
   }
 
   // Format each group
@@ -683,6 +789,7 @@ class UIController {
     // Set up bridge callbacks
     this.bridge.onStatusChange = (status) => this.handleStatusChange(status);
     this.bridge.onRoll = (rollData) => this.handleRoll(rollData);
+    this.bridge.onUnusableRoll = (rollData, unreadable, waiting) => this.handleUnusableRoll(rollData, unreadable, waiting);
     this.bridge.onError = (message) => this.showError(message);
     this.bridge.onModeChange = (continuous, waiting, pendingOnce) =>
       this.handleModeChange(continuous, waiting, pendingOnce);
@@ -877,21 +984,41 @@ class UIController {
 
     // Send to Talespire
     const success = await sendToTalespire(rollData, options);
+    if (!success) {
+      this.showError('Couldn\'t send the roll to the dice tray.');
+    }
 
     // Add to recent rolls list
     this.addRecentRoll(rollData, success);
   }
 
   /**
+   * A roll with a die the camera couldn't read (or no dice): it wasn't sent to
+   * the dice tray.
+   * @param {Object} rollData
+   * @param {Array} unreadable - The dice that couldn't be read
+   * @param {boolean} waiting - Whether the bridge is waiting for the reroll
+   */
+  handleUnusableRoll(rollData, unreadable, waiting) {
+    const problem = unreadable.length
+      ? `Couldn't read ${summarizeDice(unreadable)}.`
+      : 'That roll had no dice.';
+    this.showError(`${problem} ${waiting ? 'Roll again; still waiting.' : 'Not sent to the dice tray.'}`);
+    this.addRecentRoll(rollData, false, true);
+  }
+
+  /**
    * Add a roll to the recent rolls list.
    * @param {Object} rollData
-   * @param {boolean} success
+   * @param {boolean} success - Reached the dice tray
+   * @param {boolean} [notSent] - Not sent to the tray (an unreadable die, or no dice)
    */
-  addRecentRoll(rollData, success) {
+  addRecentRoll(rollData, success, notSent = false) {
     // Add to beginning of array
     this.recentRolls.unshift({
       ...rollData,
       success,
+      notSent,
       displayTime: new Date().toLocaleTimeString(),
     });
 
@@ -915,16 +1042,19 @@ class UIController {
 
     const html = this.recentRolls.map(roll => {
       const diceHtml = roll.dice.map(d =>
-        `<span class="die-result">${d.type}: ${d.value}</span>`
+        `<span class="die-result${d.readable ? '' : ' unreadable'}">${escapeHtml(d.type)}: ${escapeHtml(displayFace(d))}</span>`
       ).join('');
 
+      const failed = !roll.notSent && !roll.success;
+      const note = roll.notSent ? ' &middot; not sent'
+        : failed ? ' &middot; dice tray didn\'t take it' : '';
       return `
-        <div class="roll-item">
+        <div class="roll-item${roll.notSent ? ' not-sent' : ''}${failed ? ' failed' : ''}">
           <div>
             <div class="roll-dice">${diceHtml}</div>
-            <div class="roll-time">${roll.displayTime}</div>
+            <div class="roll-time">${roll.displayTime}${note}</div>
           </div>
-          <div class="roll-total">${roll.total}</div>
+          <div class="roll-total">${roll.notSent ? '&ndash;' : escapeHtml(String(roll.total))}</div>
         </div>
       `;
     }).join('');

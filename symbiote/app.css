@@ -247,6 +247,20 @@ select:focus {
   border-left: 3px solid var(--ts-accent, #5865f2);
 }
 
+.roll-item.not-sent {
+  border-left-color: #e6a23c;
+  opacity: 0.8;
+}
+
+.roll-item.failed {
+  border-left-color: #d9534f;
+  opacity: 0.8;
+}
+
+.die-result.unreadable {
+  color: #e6a23c;
+}
+
 .roll-item:last-child {
   margin-bottom: 0;
 }
