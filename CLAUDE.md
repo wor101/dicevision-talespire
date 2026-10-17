@@ -25,10 +25,8 @@ The symbiote:
 |----------|-----|
 | Main Docs | https://symbiote-docs.talespire.com/ |
 | API Reference (v0.1) | https://symbiote-docs.talespire.com/api_doc_v0_1.md.html |
-| Manifest Reference (v1) | https://symbiote-docs.talespire.com/manifest_v1.md.html |
-| Getting Started | https://symbiote-docs.talespire.com/getting_started.md.html |
-| Extras (Themes/Fonts/Icons) | https://symbiote-docs.talespire.com/extras.md.html |
-| FAQ | https://symbiote-docs.talespire.com/faq.md.html |
+| Manifest Reference (v1) | https://symbiote-docs.talespire.com/manifest_doc_v1.html |
+| Getting Started, Extras (theme/fonts/icons), lifetime, FAQ | Sections of the main docs page |
 | Example Symbiotes (GitHub) | https://github.com/Bouncyrock/symbiotes-examples |
 
 ### DiceVision Backend
@@ -182,18 +180,42 @@ await TS.dice.sendDiceResult([resultGroup]);
 // Send to everyone
 await TS.chat.send("Physical Dice: 1d20(15) = 15", "board");
 
-// Send to GM only
-await TS.chat.send("Physical Dice: 1d20(15) = 15", "gm");
+// Send to GM only: the keyword is "gms" (all GMs). Versions before 1.1.0
+// sent "gm", which isn't one of the documented keywords ("gms", "board",
+// "campaign") or a player id, so it most likely failed with invalidTarget.
+await TS.chat.send("Physical Dice: 1d20(15) = 15", "gms");
 ```
+
+Messages are cut at 400 characters. `sendDiceResult` has no GM-only option, so "GM only" applies to the chat announcement, not the tray. A failed announcement shows a panel message ("Roll sent to the dice tray, but the chat announcement failed (…)"); the roll still counts as sent. `sendToTalespire` returns `{ sent, error?, chatError? }` and never throws. TaleSpire calls reject with `{ cause }` objects (no `message`), so `describeError()` gives the reason.
+
+### Notifications
+
+```javascript
+// Only while the symbiote isn't visible (panel closed, or another symbiote
+// in front): the panel's own message can't be seen then
+if (!(await TS.symbiote.getIfThisSymbioteIsVisible())) {
+  await TS.symbiote.sendNotification("DiceVision", "Couldn't read 1d8. Roll again; still waiting.");
+}
+```
+
+`sendNotification` needs `api.interop.id` in the manifest (else `symbioteManifestMissingInteropId`); clicking it opens the panel. `notifyOutsidePanel()` falls back to a chat whisper to the player (`players.whoAmI()` → `chat.send(msg, me.id)`). It's used for unreadable / empty rolls, once until a roll goes through, Roll Once is pressed, the mode changes, or the connection is made or lost. Only a notice that went out counts: if the panel was open (nothing sent), the next unusable roll can still notify.
 
 ### Local Storage
 
 ```javascript
-// Save per campaign
-await TS.localStorage.campaign.setBlob("key", "value");
-await TS.localStorage.campaign.getBlob("key");
-await TS.localStorage.campaign.removeBlob("key");
+// ONE blob per symbiote and campaign: no keys, and no removeBlob
+await TS.localStorage.campaign.setBlob(JSON.stringify(state));
+const state = JSON.parse(await TS.localStorage.campaign.getBlob());
+await TS.localStorage.campaign.deleteBlob();
 ```
+
+`campaignStore` in `app.js` keeps `{ sessionCode, options }` as that one JSON blob:
+- Writes are queued, so saving the code and the options together can't lose one.
+- Every write replaces the whole blob, so it's only made on top of a successful read. A failed read (`readFailed`, `notInCampaign`) returns `null` and isn't cached; the next save reads again and, if that fails too, refuses to write. Otherwise a save would wipe whatever it couldn't read.
+- The cache takes a state only after `setBlob` succeeds. Failed saves call `campaignStore.onSaveFailed` (the panel shows "Couldn't save DiceVision settings (…)").
+- Overlapping loads share one read.
+
+Versions before 1.1.0 called `setBlob(key, value)`. Per the docs `setBlob` takes one string, so that most likely stored the key name, and the session code wasn't remembered (not confirmed in TaleSpire). `parseStoredState` reads such a blob as nothing saved. A blob is limited to 5MB.
 
 ## Development Workflow
 
@@ -229,21 +251,23 @@ View logs in browser dev tools (Talespire uses Chromium).
 
 ## CSS Variables
 
-The symbiote uses Talespire CSS variables for theme integration:
+The `colorStyles` extra injects these variables (the only ones TaleSpire documents; each use in `app.css` keeps a fallback color for outside TaleSpire). Before 1.1.0 the CSS mostly used names TaleSpire doesn't provide (`--ts-accent`, `--ts-text`, …; only `--ts-accent-hover` was real), so the theme mostly didn't apply.
+
+- `--ts-accessibility-border` and `--ts-accessibility-focus` are **transparent in the default theme** (they're for the high contrast theme). Don't use them for borders you want seen: input and button borders use `--ts-color-secondary` (a foreground color, as the docs advise), decorative borders `--ts-background-tertiary`. Focus outlines use `--ts-accessibility-focus`.
+- A unit test fails on any `--ts-*` name not in this list.
 
 ```css
---ts-background        /* Main background */
---ts-background-alt    /* Panel background */
---ts-text              /* Normal text */
---ts-text-bright       /* Emphasized text */
---ts-text-muted        /* Secondary text */
---ts-border            /* Border color */
---ts-accent            /* Primary accent (buttons) */
---ts-accent-hover      /* Accent hover state */
---ts-font-family       /* System font */
---ts-font-size         /* Base font size */
---ts-input-background  /* Input field background */
+--ts-color-primary, --ts-color-secondary, --ts-color-danger
+--ts-background-primary, --ts-background-secondary, --ts-background-tertiary
+--ts-accent-primary, --ts-accent-hover, --ts-accent-background
+--ts-button-background, --ts-button-hover
+--ts-accessibility-border, --ts-accessibility-focus
+--ts-link, --ts-link-hover
 ```
+
+## Manifest
+
+`symbiote/manifest.json` uses only the fields in the manifest v1 docs: `summary`, `descriptionFilePath` (`/readme.md`), `about`, `icons.64x64`, `api.interop.id` (a fixed UUID, needed for notifications; don't change it), `environment.webViewBackgroundColor` (no white flash while loading), `capabilities: ["runInBackground"]` (switching to another symbiote would otherwise shut this one down and drop the bridge; just closing the panel doesn't), `license`, and `extras: ["colorStyles"]`. Bump `version` with each release.
 
 ## Key Files Reference
 
@@ -262,7 +286,6 @@ The symbiote uses Talespire CSS variables for theme integration:
 - [ ] Connect with invalid session code (error handling)
 - [ ] Receive roll → appears in Talespire dice UI
 - [ ] Receive roll → appears in chat (if enabled)
-- [ ] Session code persists across symbiote reloads
 - [ ] Auto-reconnect after connection drop
 - [ ] Single die (e.g., 1d20)
 - [ ] Multiple dice same type (e.g., 3d6)
@@ -271,8 +294,12 @@ The symbiote uses Talespire CSS variables for theme integration:
 - [ ] "Symbiote" indicator shows on rolls
 - [ ] A die the camera can't read: not sent, panel says which die, the next roll (Roll Once too) is sent
 - [ ] Pip d6s show their dots in the tray and chat
+- [ ] Session code and options are remembered after closing and reopening the symbiote (auto-connects)
+- [ ] Chat announcement set to GM only reaches the GM
+- [ ] Panel closed + a die the camera can't read: a TaleSpire notification (once), and clicking it opens the panel; also when the panel was open for the first unreadable roll and closed afterwards
+- [ ] Panel colors follow TaleSpire's theme, and borders are visible in the default theme
 
-Unit tests: `npm test` (`tests/app.test.mjs` loads `app.js` into a Node vm with no Talespire or DOM). Run them after any change to `app.js`.
+Unit tests: `npm test` (`tests/app.test.mjs` loads `app.js` into a Node vm with a stand-in `TS` that follows the documented API, e.g. one storage blob with no keys, and fake DOM elements). It also checks the manifest and that `app.css` only uses documented theme variables. Run them after any change to `symbiote/`.
 
 ## Deployment
 
