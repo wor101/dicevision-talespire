@@ -624,6 +624,20 @@ class DiceVisionBridge {
 const TRAY_KINDS = new Set(['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']);
 
 /**
+ * Whether a value can show on a die of this kind. The dice tray doesn't
+ * check: it took a d4 of 12 (a misread) and showed it. A d10 shows 0-9, or
+ * 10 on a d10 printed 1-10; percentile tens dice (00-90) also arrive as d10s.
+ * @param {string} type - One of TRAY_KINDS
+ * @param {number} value - A whole number >= 0
+ * @returns {boolean}
+ */
+function inRangeForDie(type, value) {
+  if (type === 'd10') return value <= 10 || (value % 10 === 0 && value <= 90);
+  if (type === 'd100') return value <= 100;
+  return value >= 1 && value <= Number(type.slice(1));
+}
+
+/**
  * The number a DiceVision face string stands for: "7" -> 7, "00" -> 0,
  * "pip_4" -> 4, "-1" -> -1. null for any other symbol.
  * @param {*} face
@@ -642,7 +656,8 @@ function faceNumber(face) {
  * printed ("7", "00", "pip_4", "-1" when unread), value its number. Older
  * servers sent {type, value} only, so face and readable come from value then.
  * A die is readable only when `readable` is true or missing, its value is a
- * whole number >= 0, and its type is one the dice tray takes (TRAY_KINDS);
+ * whole number >= 0 that the die can show (inRangeForDie; otherwise it's
+ * marked `outOfRange`), and its type is one the dice tray takes (TRAY_KINDS);
  * otherwise its value is -1. Anything that isn't a die object reads as an
  * unreadable `d?` die, as does a die with no type. A non-array reads as no dice.
  * @param {Array} dice
@@ -657,9 +672,13 @@ function readDice(dice) {
     const face = String(raw === undefined || raw === null ? '-1' : raw).trim();
     const value = typeof d.value === 'number' ? d.value : faceNumber(face);
     if (!TRAY_KINDS.has(type)) console.warn('[DiceVision] Die type the dice tray can\'t take:', d);
-    const readable = (d.readable === undefined || d.readable === true)
+    const read = (d.readable === undefined || d.readable === true)
       && Number.isInteger(value) && value >= 0 && TRAY_KINDS.has(type);
-    return { type, value: readable ? value : -1, face, readable };
+    // Read, but not a value this die has (e.g. a d4 of 12): unusable too
+    // (kept when dice already read are read again)
+    const outOfRange = d.outOfRange === true || (read && !inRangeForDie(type, value));
+    const readable = read && !outOfRange;
+    return { type, value: readable ? value : -1, face, readable, ...(outOfRange ? { outOfRange: true } : {}) };
   });
 }
 
@@ -670,7 +689,7 @@ function readDice(dice) {
  * @returns {string}
  */
 function displayFace(die) {
-  if (!die.readable) return '?';
+  if (!die.readable) return die.outOfRange ? die.face : '?';
   return /^pip_/.test(die.face) ? String(die.value) : die.face;
 }
 
@@ -1136,9 +1155,14 @@ class UIController {
    * @returns {Promise<string>} What notifyOutsidePanel did, or 'already-notified'
    */
   handleUnusableRoll(rollData, unreadable, waiting) {
-    const problem = unreadable.length
-      ? `Couldn't read ${summarizeDice(unreadable)}.`
-      : 'That roll had no dice.';
+    const unread = unreadable.filter(d => !d.outOfRange);
+    const outOfRange = unreadable.filter(d => d.outOfRange);
+    const problems = [];
+    if (unread.length) problems.push(`Couldn't read ${summarizeDice(unread)}.`);
+    if (outOfRange.length) {
+      problems.push(`Read as impossible: ${outOfRange.map(d => `${d.type} showing ${d.face}`).join(', ')}.`);
+    }
+    const problem = problems.length ? problems.join(' ') : 'That roll had no dice.';
     const message = `${problem} ${waiting ? 'Roll again; still waiting.' : 'Not sent to the dice tray.'}`;
     this.showError(message);
     this.addRecentRoll(rollData, false, true);
