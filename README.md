@@ -55,6 +55,9 @@ The symbiote will be available on mod.io for one-click installation.
 - d4, d6, d8, d10, d12, d20
 - Multiple dice of different types in a single roll
 - Mixed dice (e.g., 1d20 + 2d6)
+- Pip d6s (dots) as well as numbered dice
+
+If the camera couldn't read a die, the roll isn't sent to the dice tray: the panel says which die and the symbiote keeps waiting (Roll Once included). Roll again in view of the camera.
 
 ## Troubleshooting
 
@@ -78,7 +81,7 @@ The symbiote will be available on mod.io for one-click installation.
 
 ## Development
 
-See [CLAUDE.md](CLAUDE.md) for development documentation.
+See [CLAUDE.md](CLAUDE.md) for development documentation. Unit tests: `npm test` (Node, no dependencies).
 
 ### Testing Locally
 
