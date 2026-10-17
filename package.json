@@ -4,6 +4,12 @@
   "type": "module",
   "description": "Dev tooling only; the symbiote itself has no build step or dependencies.",
   "scripts": {
+    "lint": "eslint .",
     "test": "node tests/app.test.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.2",
+    "eslint": "9.39.2",
+    "globals": "16.5.0"
   }
 }
