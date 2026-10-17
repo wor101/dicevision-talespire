@@ -57,7 +57,7 @@ The symbiote will be available on mod.io for one-click installation.
 - Mixed dice (e.g., 1d20 + 2d6)
 - Pip d6s (dots) as well as numbered dice
 
-If the camera couldn't read a die, the roll isn't sent to the dice tray: the panel says which die and the symbiote keeps waiting (Roll Once included). Roll again in view of the camera. With the panel closed (or another symbiote in front), a TaleSpire notification tells you instead, once until a roll goes through; if notifications fail, you get a chat whisper.
+If the camera couldn't read a die, the roll isn't sent to the dice tray: the panel says which die, and in Roll Once or continuous mode the symbiote keeps waiting. Roll again in view of the camera. With the panel closed (or another symbiote in front), a TaleSpire notification tells you instead, once until a roll goes through; if notifications fail, you get a chat whisper. If the dice tray rejects a roll, the panel says so (with the reason) and Recent Rolls marks it.
 
 The session code and options are saved per campaign, and the symbiote reconnects when you reopen it.
 
