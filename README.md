@@ -13,17 +13,19 @@ A Talespire symbiote that connects physical dice rolls from [DiceVision](https:/
 
 ## Installation
 
-### Option 1: Manual Installation
+### Option 1: Download a Release
 
-1. Download or clone this repository
-2. Copy the `symbiote/` folder to your Talespire Symbiotes directory:
+1. Turn on Symbiotes in TaleSpire's settings, if you haven't.
+2. Download [DiceVision.zip](https://github.com/wor101/dicevision-talespire/releases/latest/download/DiceVision.zip) (the latest release).
+3. Unzip it into your TaleSpire Symbiotes directory, so you have `Symbiotes/DiceVision/manifest.json`. Open the directory from TaleSpire's Symbiote panel or settings, or go to:
    - **Windows**: `%AppData%/../LocalLow/BouncyRock Entertainment/TaleSpire/Symbiotes/`
-3. Rename the folder to `DiceVision` (optional, for cleaner display)
-4. Launch Talespire - the symbiote should appear in the symbiote panel
+4. DiceVision appears in the Symbiote panel.
+
+**Updating:** replace the files in `Symbiotes/DiceVision/` with the new zip's. Keep the hidden `.localStorage` folder there: it holds your saved session code and options.
 
 ### Option 2: mod.io (Coming Soon)
 
-The symbiote will be available on mod.io for one-click installation.
+The symbiote will be available on mod.io, for one-click installation from TaleSpire's community mod browser.
 
 ## Setup
 
@@ -83,7 +85,7 @@ The session code and options are saved per campaign, and the symbiote reconnects
 
 ## Development
 
-See [CLAUDE.md](CLAUDE.md) for development documentation. Unit tests: `npm test` (Node, no dependencies).
+See [CLAUDE.md](CLAUDE.md) for development documentation. `npm test` runs the unit tests and `npm run lint` runs ESLint (run `npm ci` first); CI runs both on every PR.
 
 ### Testing Locally
 

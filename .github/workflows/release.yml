@@ -1,0 +1,43 @@
+# Builds and publishes a release when a version tag is pushed.
+#
+#   git tag v1.2.0 && git push origin v1.2.0
+#
+# The release carries DiceVision.zip: one DiceVision/ folder with
+# manifest.json inside (TaleSpire's layout), its version set from the tag.
+# Plain tags (v1.2.0) become normal releases, so the README's link
+# releases/latest/download/DiceVision.zip always gets the newest one.
+# Hyphenated tags (v1.2.0-rc.1) become pre-releases, which releases/latest
+# skips.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test
+        run: npm test
+
+      - name: Build DiceVision.zip
+        run: ./scripts-dev/build-zip.sh "$GITHUB_REF_NAME"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" dist/DiceVision.zip \
+            --title "$GITHUB_REF_NAME" --generate-notes $prerelease
