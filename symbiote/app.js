@@ -23,8 +23,6 @@ const CONFIG = {
 
   // Maximum recent rolls to display
   MAX_RECENT_ROLLS: 10,
-
-  // Storage keys
 };
 
 // ============================================================================
@@ -51,9 +49,16 @@ function debugLog(message, data = null) {
   }
 }
 
-// ============================================================================
-// DiceVision Bridge Client
-// ============================================================================
+/**
+ * A short reason for a failed TaleSpire API call. Calls reject with objects
+ * like { cause: 'notInCampaign' }, which have no `message`.
+ * @param {*} err
+ * @returns {string}
+ */
+function describeError(err) {
+  if (err && typeof err === 'object') return String(err.cause || err.message || JSON.stringify(err));
+  return String(err);
+}
 
 // ============================================================================
 // Saved State
@@ -61,68 +66,108 @@ function debugLog(message, data = null) {
 
 /**
  * Parse the stored blob as a state object. Anything else reads as no saved
- * state, including what versions before 1.1.0 stored: they called
- * setBlob(key, value), which saved the key's name as the whole blob.
+ * state. That includes what versions before 1.1.0 left: per the docs
+ * setBlob takes one string, so their setBlob(key, value) stored the key name.
  * @param {*} blob
  * @returns {Object}
  */
 function parseStoredState(blob) {
+  if (blob === undefined || blob === null || blob === '') return {};
   try {
     const state = JSON.parse(blob);
-    return state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+    if (state && typeof state === 'object' && !Array.isArray(state)) return state;
   } catch {
-    return {};
+    // fall through
   }
+  console.warn('[DiceVision] Saved settings aren\'t a settings object; starting fresh:', blob);
+  return {};
 }
 
 /**
  * The symbiote's saved state in Talespire's per-campaign storage:
  * { sessionCode, options }. TS.localStorage.campaign holds ONE blob per
  * symbiote and campaign (setBlob(str), getBlob(), deleteBlob(), no keys), so
- * it's all one JSON object. Writes are queued, so saving the session code and
- * the options at once can't lose either.
+ * it's all one JSON object.
+ * - Writes are queued, so saving the session code and the options at once
+ *   can't lose either.
+ * - Every write replaces the whole blob, so it's only made on top of a
+ *   successful read: a failed read (readFailed, notInCampaign) isn't
+ *   remembered as "nothing saved", or the next save would wipe the rest.
+ * - The cache only takes a state once it's written.
+ * Failures go to onSaveFailed (the panel shows them).
  */
 const campaignStore = {
   cache: null,
+  loading: null,
   queue: Promise.resolve(),
+  /** @type {?function(string): void} Called with a reason when a save fails */
+  onSaveFailed: null,
+  /** @type {?string} Why the last read failed, if it did */
+  lastReadError: null,
 
   available() {
     return typeof TS !== 'undefined' && !!(TS.localStorage && TS.localStorage.campaign);
   },
 
-  /** @returns {Promise<Object>} The saved state ({} if none or unreadable) */
-  async load() {
-    if (this.cache) return this.cache;
-    let state = {};
-    if (this.available()) {
-      try {
-        state = parseStoredState(await TS.localStorage.campaign.getBlob());
-      } catch (err) {
-        console.error('[DiceVision] Failed to load saved settings:', err);
-      }
+  /**
+   * The saved state, read once and then cached. Overlapping calls share one
+   * read. Never throws.
+   * @returns {Promise<?Object>} The state ({} if nothing saved), or null if
+   *   storage couldn't be read (not cached, so the next call tries again)
+   */
+  load() {
+    if (this.cache) return Promise.resolve(this.cache);
+    if (!this.loading) {
+      this.loading = (async () => {
+        try {
+          const state = this.available() ? parseStoredState(await TS.localStorage.campaign.getBlob()) : {};
+          this.lastReadError = null;
+          if (!this.cache) this.cache = state;
+          return this.cache;
+        } catch (err) {
+          this.lastReadError = describeError(err);
+          console.error('[DiceVision] Failed to load saved settings:', this.lastReadError, err);
+          return null;
+        } finally {
+          this.loading = null;
+        }
+      })();
     }
-    this.cache = state;
-    return state;
+    return this.loading;
   },
 
   /**
-   * Merge `patch` into the saved state and write it.
+   * Merge `patch` into the saved state and write it. Never throws.
    * @param {Object} patch
-   * @returns {Promise<void>}
+   * @returns {Promise<boolean>} Whether it was saved
    */
   update(patch) {
-    this.queue = this.queue
-      .then(async () => {
-        const state = { ...(await this.load()), ...patch };
-        this.cache = state;
+    this.queue = this.queue.then(async () => {
+      try {
+        const current = await this.load();
+        if (current === null) {
+          throw new Error(`couldn't read the saved settings (${this.lastReadError}), so not overwriting them`);
+        }
+        const state = { ...current, ...patch };
         if (this.available()) {
           await TS.localStorage.campaign.setBlob(JSON.stringify(state));
         }
-      })
-      .catch(err => console.error('[DiceVision] Failed to save settings:', err));
+        this.cache = state;
+        return true;
+      } catch (err) {
+        const reason = describeError(err);
+        console.error('[DiceVision] Failed to save settings:', reason, err);
+        if (this.onSaveFailed) this.onSaveFailed(reason);
+        return false;
+      }
+    });
     return this.queue;
   },
 };
+
+// ============================================================================
+// DiceVision Bridge Client
+// ============================================================================
 
 class DiceVisionBridge {
   constructor() {
@@ -701,9 +746,12 @@ function convertToTalespireFormat(rollData, rollName = 'Physical Dice') {
 }
 
 /**
- * Send a roll result to Talespire's dice tray.
+ * Send a roll result to Talespire's dice tray, and announce it in chat.
  * @param {Object} rollData - DiceVision roll data
  * @param {Object} options - { rollName, chatAnnounce, chatTarget }
+ * @returns {Promise<{sent: boolean, error?: string, chatError?: string}>}
+ *   sent: whether it reached the tray (error says why not); chatError: the
+ *   roll reached the tray but the chat announcement failed. Never throws.
  */
 async function sendToTalespire(rollData, options = {}) {
   const {
@@ -717,48 +765,47 @@ async function sendToTalespire(rollData, options = {}) {
   // Check if Talespire API is available
   if (typeof TS === 'undefined') {
     debugLog('Talespire API not available');
-    return false;
+    return { sent: false, error: 'TaleSpire API not available' };
   }
 
+  // Convert to Talespire format
+  const resultGroup = convertToTalespireFormat(rollData, rollName);
+  if (!resultGroup) {
+    debugLog('Failed to convert roll data');
+    return { sent: false, error: 'no dice to send' };
+  }
+  debugLog('Converted roll format', resultGroup);
+
+  // Send to dice tray (failures reject, e.g. { cause: 'invalidDiceType' })
   try {
-    // Convert to Talespire format
-    const resultGroup = convertToTalespireFormat(rollData, rollName);
-    if (!resultGroup) {
-      debugLog('Failed to convert roll data');
-      return false;
-    }
-
-    debugLog('Converted roll format', resultGroup);
-
-    // Send to dice tray
-    const diceResult = await TS.dice.sendDiceResult([resultGroup]);
-    if (diceResult && diceResult.error) {
-      debugLog('Dice result error', diceResult);
-    }
-    debugLog('Roll sent to dice tray', { result: diceResult });
-
-    // Optionally announce in chat. The roll is already in the tray, so a
-    // chat failure is logged but doesn't count the roll as failed.
-    if (chatAnnounce) {
-      const diceStr = formatDiceString(rollData.dice);
-      const message = `${rollName}: ${diceStr} = ${rollData.total}`;
-      // GM whisper: Talespire's keyword for all GMs is "gms" (the option
-      // value stays 'gm' so saved settings keep working)
-      const target = chatTarget === 'gm' ? 'gms' : 'board';
-      try {
-        await TS.chat.send(message, target);
-        debugLog('Chat message sent', { message, target });
-      } catch (err) {
-        console.error('[DiceVision] Chat announcement failed:', err);
-      }
-    }
-
-    debugLog('Roll sent successfully');
-    return true;
+    const rollId = await TS.dice.sendDiceResult([resultGroup]);
+    debugLog('Roll sent to dice tray', { rollId });
   } catch (err) {
-    debugLog('Failed to send to Talespire', { error: err.message });
-    return false;
+    const error = describeError(err);
+    console.error('[DiceVision] Sending the roll to the dice tray failed:', error, err);
+    return { sent: false, error };
   }
+
+  // Optionally announce in chat. The roll is already in the tray, so a chat
+  // failure doesn't count the roll as failed, but it's reported.
+  if (chatAnnounce) {
+    const diceStr = formatDiceString(rollData.dice);
+    const message = `${rollName}: ${diceStr} = ${rollData.total}`;
+    // GM whisper: Talespire's keyword for all GMs is "gms" (the option
+    // value stays 'gm' so saved settings keep working)
+    const target = chatTarget === 'gm' ? 'gms' : 'board';
+    try {
+      await TS.chat.send(message, target);
+      debugLog('Chat message sent', { message, target });
+    } catch (err) {
+      const chatError = describeError(err);
+      console.error('[DiceVision] Chat announcement failed:', chatError, err);
+      return { sent: true, chatError };
+    }
+  }
+
+  debugLog('Roll sent successfully');
+  return { sent: true };
 }
 
 /**
@@ -853,7 +900,14 @@ class UIController {
       waitingText: document.getElementById('waiting-text'),
     };
 
-    this.init();
+    // The outside-the-panel notice for an unusable roll was sent, and no roll
+    // has gone through since (see handleUnusableRoll)
+    this.unusableNotified = false;
+
+    this.init().catch((err) => {
+      console.error('[DiceVision] Failed to start:', err);
+      this.showError(`DiceVision failed to start (${describeError(err)}). Reopen the symbiote.`);
+    });
   }
 
   /**
@@ -869,6 +923,8 @@ class UIController {
     this.bridge.onError = (message) => this.showError(message);
     this.bridge.onModeChange = (continuous, waiting, pendingOnce) =>
       this.handleModeChange(continuous, waiting, pendingOnce);
+    campaignStore.onSaveFailed = (reason) =>
+      this.showError(`Couldn't save DiceVision settings (${reason}). They may reset next time.`);
 
     // Set up event listeners
     this.elements.connectBtn.addEventListener('click', () => this.handleConnect());
@@ -889,6 +945,7 @@ class UIController {
 
     // Roll mode event listeners
     this.elements.continuousModeToggle.addEventListener('change', (e) => {
+      this.unusableNotified = false;
       if (e.target.checked) {
         this.bridge.enableContinuousMode();
       } else {
@@ -898,6 +955,7 @@ class UIController {
     });
 
     this.elements.rollOnceBtn.addEventListener('click', () => {
+      this.unusableNotified = false;
       this.bridge.rollOnce();
     });
 
@@ -909,7 +967,11 @@ class UIController {
    * Load saved session code and options from Talespire storage.
    */
   async loadSavedState() {
-    const state = await campaignStore.load();
+    let state = await campaignStore.load();
+    if (state === null) {
+      this.showError(`Couldn't read saved DiceVision settings (${campaignStore.lastReadError}).`);
+      state = {};
+    }
 
     // Load options first, so an auto-connect starts in the saved mode
     const options = state.options && typeof state.options === 'object' ? state.options : {};
@@ -933,7 +995,6 @@ class UIController {
       this.handleConnect();
     }
   }
-
 
   /**
    * Save the session code to Talespire storage.
@@ -1000,6 +1061,9 @@ class UIController {
 
     // Update UI visibility based on connection state
     const isConnected = status === 'connected';
+    if (isConnected || status === 'disconnected') {
+      this.unusableNotified = false;
+    }
     this.elements.modePanel.style.display = isConnected ? 'block' : 'none';
     this.elements.optionsPanel.style.display = isConnected ? 'block' : 'none';
     this.elements.rollsPanel.style.display = isConnected ? 'block' : 'none';
@@ -1034,10 +1098,15 @@ class UIController {
     };
 
     // Send to Talespire
-    const success = await sendToTalespire(rollData, options);
+    const result = await sendToTalespire(rollData, options);
+    if (!result.sent) {
+      this.showError(`Couldn't send the roll to the dice tray (${result.error}).`);
+    } else if (result.chatError) {
+      this.showError(`Roll sent to the dice tray, but the chat announcement failed (${result.chatError}).`);
+    }
 
     // Add to recent rolls list
-    this.addRecentRoll(rollData, success);
+    this.addRecentRoll(rollData, result.sent);
   }
 
   /**
@@ -1045,6 +1114,7 @@ class UIController {
    * the dice tray, and the bridge keeps waiting for the reroll.
    * @param {Object} rollData
    * @param {Array} unreadable - The dice that couldn't be read
+   * @returns {Promise<string>} What notifyOutsidePanel did, or 'already-notified'
    */
   handleUnusableRoll(rollData, unreadable) {
     const message = unreadable.length
@@ -1053,12 +1123,16 @@ class UIController {
     this.showError(message);
     this.addRecentRoll(rollData, false, true);
     // The panel's message is invisible while the panel is closed. Tell the
-    // player outside it, once until a roll goes through: in continuous mode a
-    // die left on the table would otherwise notify on every capture.
-    if (!this.unusableNotified) {
-      this.unusableNotified = true;
-      notifyOutsidePanel(message);
-    }
+    // player outside it, once until a roll goes through (or Roll Once, a mode
+    // change, or a reconnect): in continuous mode a die left on the table
+    // would otherwise notify on every capture. Only a notice that went out
+    // counts; with the panel open nothing is sent, so the next one still can.
+    if (this.unusableNotified) return Promise.resolve('already-notified');
+    this.unusableNotified = true; // held while sending, so two captures don't both notify
+    return notifyOutsidePanel(message).then((result) => {
+      if (result !== 'notification' && result !== 'whisper') this.unusableNotified = false;
+      return result;
+    });
   }
 
   /**

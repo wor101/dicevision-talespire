@@ -15,7 +15,9 @@ Connect your physical dice rolls to Talespire! This symbiote receives dice recog
 - Rolls appear in Talespire's native dice tray
 - Optional chat announcements (to everyone or GM only)
 - Automatic reconnection on connection loss
-- Session code saved per campaign
+- Session code and options saved per campaign; reconnects when reopened
+- Pip d6s count their dots
+- If the camera couldn't read a die, the roll isn't sent: the panel (or a TaleSpire notification when the panel is closed) says which die, and it keeps waiting for your reroll
 
 ## Supported Dice
 

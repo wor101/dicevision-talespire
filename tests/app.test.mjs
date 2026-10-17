@@ -3,11 +3,12 @@
 // enough stand-ins (no Talespire, no DOM).
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { existsSync } from 'node:fs';
 
 const source = readFileSync(new URL('../symbiote/app.js', import.meta.url), 'utf8');
 const context = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {} }, window: {}, setTimeout, clearTimeout, setInterval, clearInterval });
 const app = vm.runInContext(`${source}
-;({ DiceVisionBridge, UIController, readDice, faceNumber, displayFace, summarizeDice, formatDiceString, convertToTalespireFormat, sendToTalespire, parseStoredState, campaignStore, notifyOutsidePanel })`, context);
+;({ DiceVisionBridge, UIController, describeError, readDice, faceNumber, displayFace, summarizeDice, formatDiceString, convertToTalespireFormat, sendToTalespire, parseStoredState, campaignStore, notifyOutsidePanel })`, context);
 
 let passes = 0;
 let failures = 0;
@@ -117,7 +118,7 @@ await test('sendToTalespire: tray gets numbers, chat gets faces as printed', asy
     chat: { send: async (msg, target) => { calls.chat.push([msg, target]); } }
   };
   try {
-    const ok = await app.sendToTalespire({ dice: app.readDice([vtt('d10', '00'), vtt('d10', '4')]), total: 4 }, { rollName: 'Pct' });
+    const ok = (await app.sendToTalespire({ dice: app.readDice([vtt('d10', '00'), vtt('d10', '4')]), total: 4 }, { rollName: 'Pct' })).sent;
     check(ok && JSON.stringify(calls.tray[0][0].result) === '{"kind":"d10","results":[0,4]}', JSON.stringify(calls.tray));
     check(calls.chat[0]?.[0] === 'Pct: 2d10(00, 4) = 4' && calls.chat[0][1] === 'board', JSON.stringify(calls.chat));
   } finally {
@@ -130,25 +131,30 @@ await test('sendToTalespire: tray gets numbers, chat gets faces as printed', asy
 // ---------------------------------------------------------------------------
 
 /** A TS stand-in: campaign storage holds ONE blob (no keys), calls are recorded. */
-function fakeTS({ blob = undefined, visible = true, notificationFails = false, chatFails = false } = {}) {
+function fakeTS({ blob = undefined, visible = true, notificationFails = false, chatFails = false, whisperFails = false, visibilityThrows = false, readFails = 0, writeFails = 0, trayFails = false } = {}) {
   const calls = { setBlob: [], getBlob: [], chat: [], notifications: [], tray: [] };
   let stored = blob;
+  let reads = 0;
+  let writes = 0;
   context.TS = {
     localStorage: { campaign: {
-      getBlob: async (...args) => { calls.getBlob.push(args); return stored; },
-      setBlob: async (...args) => { calls.setBlob.push(args); await new Promise(r => setTimeout(r, 1)); stored = args[0]; },
+      getBlob: async (...args) => { calls.getBlob.push(args); if (reads++ < readFails) throw { cause: 'readFailed' }; return stored; },
+      setBlob: async (...args) => { calls.setBlob.push(args); await new Promise(r => setTimeout(r, 1)); if (writes++ < writeFails) throw { cause: 'writeFailed' }; stored = args[0]; },
       deleteBlob: async () => { stored = undefined; }
     } },
-    chat: { send: async (msg, target) => { if (chatFails) throw { cause: 'invalidTarget' }; calls.chat.push([msg, target]); } },
-    dice: { sendDiceResult: async groups => { calls.tray.push(groups); return 'roll-1'; } },
+    chat: { send: async (msg, target) => {
+      const whisper = target === 'player-me';
+      if ((whisper && whisperFails) || (!whisper && chatFails)) throw { cause: 'invalidTarget' };
+      calls.chat.push([msg, target]);
+    } },
+    dice: { sendDiceResult: async groups => { if (trayFails) throw { cause: 'invalidDiceType' }; calls.tray.push(groups); return 'roll-1'; } },
     symbiote: {
-      getIfThisSymbioteIsVisible: async () => visible,
+      getIfThisSymbioteIsVisible: async () => { if (visibilityThrows) throw { cause: 'unknown' }; return visible; },
       sendNotification: async (title, body) => { if (notificationFails) throw { cause: 'symbioteManifestMissingInteropId' }; calls.notifications.push([title, body]); }
     },
     players: { whoAmI: async () => ({ id: 'player-me' }) }
   };
-  app.campaignStore.cache = null;
-  app.campaignStore.queue = Promise.resolve();
+  Object.assign(app.campaignStore, { cache: null, loading: null, queue: Promise.resolve(), onSaveFailed: null, lastReadError: null });
   return { calls, stored: () => stored };
 }
 
@@ -172,11 +178,44 @@ await test('storage: one JSON blob, no keys; old keyed saves read as nothing sav
   delete context.TS;
 });
 
-await test('storage: a failing getBlob (e.g. notInCampaign) loads as nothing saved', async () => {
-  fakeTS();
-  context.TS.localStorage.campaign.getBlob = async () => { throw { cause: 'notInCampaign' }; };
-  check(JSON.stringify(await app.campaignStore.load()) === '{}', 'empty state');
+await test('storage: a failed read isn\'t remembered, and a save never overwrites what it couldn\'t read', async () => {
+  const saved = JSON.stringify({ sessionCode: 'XKRM4N7B', options: { rollName: 'Attack' } });
+  // Read fails once, then works: the save re-reads and keeps the options
+  let ts = fakeTS({ blob: saved, readFails: 1 });
+  check(await app.campaignStore.load() === null && app.campaignStore.lastReadError === 'readFailed', 'load reports the failure');
+  check(await app.campaignStore.update({ sessionCode: 'ABCD2345' }) === true, 'save after a later good read');
+  const after = JSON.parse(ts.stored());
+  check(after.sessionCode === 'ABCD2345' && after.options?.rollName === 'Attack', `options kept ${ts.stored()}`);
+  // Read keeps failing: nothing is written, and the failure is reported
+  ts = fakeTS({ blob: saved, readFails: 99 });
+  const failures = [];
+  app.campaignStore.onSaveFailed = reason => failures.push(reason);
+  check(await app.campaignStore.update({ sessionCode: null }) === false, 'save refused');
+  check(ts.stored() === saved && ts.calls.setBlob.length === 0, 'stored settings untouched');
+  check(failures.length === 1 && /readFailed/.test(failures[0]), `reported ${JSON.stringify(failures)}`);
   delete context.TS;
+});
+
+await test('storage: a failed write is reported, not cached, and later saves still run', async () => {
+  const ts = fakeTS({ blob: '{}', writeFails: 1 });
+  const failures = [];
+  app.campaignStore.onSaveFailed = reason => failures.push(reason);
+  check(await app.campaignStore.update({ sessionCode: 'XKRM4N7B' }) === false, 'first save fails');
+  check(failures[0] === 'writeFailed' && app.campaignStore.cache.sessionCode === undefined, `not cached as saved ${JSON.stringify(app.campaignStore.cache)}`);
+  check(await app.campaignStore.update({ options: { rollName: 'X' } }) === true, 'queue carries on');
+  check(JSON.parse(ts.stored()).options?.rollName === 'X', ts.stored());
+  delete context.TS;
+});
+
+await test('storage: overlapping loads share one read', async () => {
+  const ts = fakeTS({ blob: '{"sessionCode":"XKRM4N7B"}' });
+  const [a, b] = await Promise.all([app.campaignStore.load(), app.campaignStore.load()]);
+  check(a === b && ts.calls.getBlob.length === 1, `reads ${ts.calls.getBlob.length}`);
+  delete context.TS;
+});
+
+await test('describeError: TaleSpire rejections have a cause, not a message', () => {
+  check(app.describeError({ cause: 'notInCampaign' }) === 'notInCampaign' && app.describeError(new Error('boom')) === 'boom' && app.describeError('x') === 'x', 'reasons');
 });
 
 await test('chat: GM only uses TaleSpire\'s "gms" keyword', async () => {
@@ -189,8 +228,8 @@ await test('chat: GM only uses TaleSpire\'s "gms" keyword', async () => {
 
 await test('chat: a failed announcement doesn\'t count the roll as failed', async () => {
   const { calls } = fakeTS({ chatFails: true });
-  const ok = await app.sendToTalespire({ dice: app.readDice([vtt('d20', '12')]), total: 12 }, { chatTarget: 'gm' });
-  check(ok === true && calls.tray.length === 1, `ok ${ok}, tray ${calls.tray.length}`);
+  const result = await app.sendToTalespire({ dice: app.readDice([vtt('d20', '12')]), total: 12 }, { chatTarget: 'gm' });
+  check(result.sent === true && result.chatError === 'invalidTarget' && calls.tray.length === 1, `result ${JSON.stringify(result)}, tray ${calls.tray.length}`);
   delete context.TS;
 });
 
@@ -205,21 +244,137 @@ await test('notifyOutsidePanel: nothing while visible; a notification when hidde
   check(await app.notifyOutsidePanel('x') === 'none', 'no TaleSpire API');
 });
 
+/** A UIController without the DOM: fake elements, recorded panel messages. */
+function fakeUI(options = {}) {
+  const ui = Object.create(app.UIController.prototype);
+  const el = (props = {}) => ({ value: '', checked: false, style: {}, disabled: false, ...props });
+  const errors = [];
+  Object.assign(ui, {
+    bridge: new app.DiceVisionBridge(),
+    recentRolls: [],
+    unusableNotified: false,
+    showError: msg => errors.push(msg),
+    addRecentRoll: () => {},
+    elements: {
+      rollName: el({ value: 'Physical Dice' }), chatAnnounce: el({ checked: true }), rollTarget: el({ value: 'board' }),
+      continuousModeToggle: el(), sessionCodeInput: el(), ...options
+    }
+  });
+  ui.connected = [];
+  ui.handleConnect = () => ui.connected.push({ code: ui.elements.sessionCodeInput.value, continuous: ui.bridge.continuousMode });
+  return { ui, errors };
+}
+
 await test('unusable rolls notify outside the panel once until a roll goes through', async () => {
   const { calls } = fakeTS({ visible: false });
-  const ui = Object.create(app.UIController.prototype);
-  Object.assign(ui, { showError: () => {}, addRecentRoll: () => {}, unusableNotified: false,
-    elements: { rollName: { value: 'Physical Dice' }, chatAnnounce: { checked: false }, rollTarget: { value: 'board' } } });
+  const { ui } = fakeUI();
   const unread = { dice: app.readDice([vtt('d8', '-1', false)]), total: 0 };
-  ui.handleUnusableRoll(unread, unread.dice);
-  ui.handleUnusableRoll(unread, unread.dice);
-  await new Promise(r => setTimeout(r, 5));
-  check(calls.notifications.length === 1, `once ${calls.notifications.length}`);
+  const [first, second] = await Promise.all([ui.handleUnusableRoll(unread, unread.dice), ui.handleUnusableRoll(unread, unread.dice)]);
+  check(first === 'notification' && second === 'already-notified' && calls.notifications.length === 1, `once ${first} ${second}`);
+  check(calls.notifications[0][1] === "Couldn't read 1d8. Roll again; still waiting.", calls.notifications[0][1]);
   await ui.handleRoll({ dice: app.readDice([vtt('d8', '5')]), total: 5 });
-  ui.handleUnusableRoll(unread, unread.dice);
-  await new Promise(r => setTimeout(r, 5));
+  await ui.handleUnusableRoll(unread, unread.dice);
   check(calls.notifications.length === 2, `again after a roll went through ${calls.notifications.length}`);
+  const empty = await fakeUI().ui.handleUnusableRoll({ dice: [], total: 0 }, []);
+  check(empty === 'notification' && /no dice/.test(calls.notifications[2]?.[1]), `empty roll message ${JSON.stringify(calls.notifications[2])}`);
   delete context.TS;
+});
+
+await test('a notice skipped because the panel was open doesn\'t use up the one notification', async () => {
+  const { calls } = fakeTS({ visible: true });
+  const { ui } = fakeUI();
+  const unread = { dice: app.readDice([vtt('d8', '-1', false)]), total: 0 };
+  check(await ui.handleUnusableRoll(unread, unread.dice) === 'visible' && !ui.unusableNotified, 'panel open: nothing sent, flag clear');
+  context.TS.symbiote.getIfThisSymbioteIsVisible = async () => false; // the player closes the panel
+  check(await ui.handleUnusableRoll(unread, unread.dice) === 'notification' && calls.notifications.length === 1, 'then notified');
+  delete context.TS;
+});
+
+await test('notifyOutsidePanel: a failing visibility check still notifies; every channel failing returns none', async () => {
+  let { calls } = fakeTS({ visibilityThrows: true });
+  check(await app.notifyOutsidePanel('m') === 'notification' && calls.notifications.length === 1, 'visibility throws → notification');
+  ({ calls } = fakeTS({ visible: false, notificationFails: true, whisperFails: true }));
+  check(await app.notifyOutsidePanel('m') === 'none', 'nothing worked');
+  delete context.TS;
+});
+
+await test('handleRoll: tray and chat failures are shown with their reason', async () => {
+  fakeTS({ trayFails: true });
+  let { ui, errors } = fakeUI();
+  await ui.handleRoll({ dice: app.readDice([vtt('d20', '12')]), total: 12 });
+  check(/dice tray \(invalidDiceType\)/.test(errors[0] ?? ''), `tray ${JSON.stringify(errors)}`);
+  fakeTS({ chatFails: true });
+  ({ ui, errors } = fakeUI());
+  await ui.handleRoll({ dice: app.readDice([vtt('d20', '12')]), total: 12 });
+  check(/chat announcement failed \(invalidTarget\)/.test(errors[0] ?? ''), `chat ${JSON.stringify(errors)}`);
+  delete context.TS;
+});
+
+await test('loadSavedState: options first, then auto-connect with a saved code only', async () => {
+  fakeTS({ blob: JSON.stringify({ sessionCode: 'XKRM4N7B', options: { chatAnnounce: false, rollTarget: 'gm', rollName: 'Attack', continuousMode: true } }) });
+  let { ui } = fakeUI();
+  await ui.loadSavedState();
+  const e = ui.elements;
+  check(e.chatAnnounce.checked === false && e.rollTarget.value === 'gm' && e.rollName.value === 'Attack' && e.continuousModeToggle.checked === true, 'options applied');
+  check(JSON.stringify(ui.connected) === '[{"code":"XKRM4N7B","continuous":true}]', `connected in continuous mode ${JSON.stringify(ui.connected)}`);
+  for (const blob of [JSON.stringify({ sessionCode: null }), JSON.stringify({ sessionCode: 42 }), 'dicevision_session_code', undefined]) {
+    fakeTS({ blob });
+    ({ ui } = fakeUI());
+    await ui.loadSavedState();
+    check(ui.connected.length === 0, `no auto-connect for ${blob}`);
+  }
+  delete context.TS;
+});
+
+await test('loadSavedState: an unreadable store is shown, not treated as nothing saved', async () => {
+  const saved = JSON.stringify({ sessionCode: 'XKRM4N7B' });
+  const ts = fakeTS({ blob: saved, readFails: 99 });
+  const { ui, errors } = fakeUI();
+  await ui.loadSavedState();
+  check(ui.connected.length === 0 && /Couldn't read saved DiceVision settings \(readFailed\)/.test(errors[0] ?? ''), JSON.stringify(errors));
+  check(ts.stored() === saved, 'stored settings untouched');
+  delete context.TS;
+});
+
+await test('saveOptions and loadSavedState use the same keys', async () => {
+  fakeTS();
+  const { ui } = fakeUI({ chatAnnounce: { checked: false, style: {} }, rollTarget: { value: 'gm', style: {} }, rollName: { value: 'Damage', style: {} }, continuousModeToggle: { checked: true, style: {} } });
+  await ui.saveOptions();
+  app.campaignStore.cache = null; // a fresh symbiote reads storage again
+  const fresh = fakeUI().ui;
+  await fresh.loadSavedState();
+  const e = fresh.elements;
+  check(e.chatAnnounce.checked === false && e.rollTarget.value === 'gm' && e.rollName.value === 'Damage' && e.continuousModeToggle.checked === true, 'round trip');
+  delete context.TS;
+});
+
+await test('an invalid saved code is cleared, keeping the options', async () => {
+  const ts = fakeTS({ blob: JSON.stringify({ sessionCode: 'ABC', options: { rollName: 'Attack' } }) });
+  const b = new app.DiceVisionBridge();
+  b.connect('ABC');
+  await app.campaignStore.queue;
+  const saved = JSON.parse(ts.stored());
+  check(saved.sessionCode === null && saved.options?.rollName === 'Attack', ts.stored());
+  delete context.TS;
+});
+
+await test('manifest: documented fields, local paths exist, interop id set', () => {
+  const root = new URL('../symbiote/', import.meta.url);
+  const manifest = JSON.parse(readFileSync(new URL('manifest.json', root), 'utf8'));
+  for (const path of [manifest.entryPoint, manifest.descriptionFilePath, manifest.icons?.['64x64']]) {
+    check(typeof path === 'string' && path.startsWith('/') && existsSync(new URL(path.slice(1), root)), `local path ${path}`);
+  }
+  check(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(manifest.api?.interop?.id ?? ''), 'interop id is a UUIDv4 (notifications need it)');
+  check(manifest.api?.version === '0.1' && manifest.environment?.extras?.includes('colorStyles'), 'API and theme');
+  for (const field of ['author', 'description', 'type', 'interactivity']) check(!(field in manifest), `no undocumented ${field}`);
+});
+
+await test('CSS: only documented colorStyles variables', () => {
+  const documented = ['--ts-color-primary', '--ts-color-secondary', '--ts-background-primary', '--ts-background-secondary', '--ts-background-tertiary', '--ts-accessibility-border', '--ts-accessibility-focus', '--ts-color-danger', '--ts-accent-primary', '--ts-accent-hover', '--ts-accent-background', '--ts-button-background', '--ts-button-hover', '--ts-link', '--ts-link-hover'];
+  const css = readFileSync(new URL('../symbiote/app.css', import.meta.url), 'utf8');
+  const used = [...new Set(css.match(/--ts-[a-z-]+/g) ?? [])];
+  check(used.every(v => documented.includes(v)), `undocumented: ${used.filter(v => !documented.includes(v))}`);
+  check(!/accessibility-border/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')), '--ts-accessibility-border is transparent in the default theme; not used for borders');
 });
 
 console.log(`\n${passes} checks passed, ${failures} failed`);

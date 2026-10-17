@@ -28,7 +28,7 @@ body {
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--ts-accessibility-border, #333);
+  border-bottom: 1px solid var(--ts-background-tertiary, #333);
 }
 
 .header h1 {
@@ -80,7 +80,7 @@ body {
 /* Panels */
 .panel {
   background: var(--ts-background-secondary, #252540);
-  border: 1px solid var(--ts-accessibility-border, #333);
+  border: 1px solid var(--ts-background-tertiary, #333);
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 12px;
@@ -104,7 +104,7 @@ input[type="text"] {
   flex: 1;
   padding: 8px 12px;
   font-size: 14px;
-  border: 1px solid var(--ts-accessibility-border, #333);
+  border: 1px solid var(--ts-color-secondary, #444);
   border-radius: 4px;
   background: var(--ts-background-tertiary, #1a1a2e);
   color: var(--ts-color-primary, #e0e0e0);
@@ -112,7 +112,7 @@ input[type="text"] {
 }
 
 input[type="text"]:focus {
-  outline: none;
+  outline: 2px solid var(--ts-accessibility-focus, transparent);
   border-color: var(--ts-accent-primary, #5865f2);
 }
 
@@ -125,7 +125,7 @@ select {
   flex: 1;
   padding: 8px 12px;
   font-size: 14px;
-  border: 1px solid var(--ts-accessibility-border, #333);
+  border: 1px solid var(--ts-color-secondary, #444);
   border-radius: 4px;
   background: var(--ts-background-tertiary, #1a1a2e);
   color: var(--ts-color-primary, #e0e0e0);
@@ -133,7 +133,7 @@ select {
 }
 
 select:focus {
-  outline: none;
+  outline: 2px solid var(--ts-accessibility-focus, transparent);
   border-color: var(--ts-accent-primary, #5865f2);
 }
 
@@ -165,7 +165,7 @@ select:focus {
 .btn-secondary {
   background: var(--ts-button-background, #1a1a2e);
   color: var(--ts-color-primary, #e0e0e0);
-  border: 1px solid var(--ts-accessibility-border, #333);
+  border: 1px solid var(--ts-color-secondary, #444);
   width: 100%;
 }
 
@@ -330,7 +330,7 @@ select:focus {
 }
 
 .rolls-list::-webkit-scrollbar-thumb {
-  background: var(--ts-accessibility-border, #333);
+  background: var(--ts-color-secondary, #444);
   border-radius: 3px;
 }
 
@@ -379,7 +379,7 @@ select:focus {
   right: 0;
   bottom: 0;
   background: var(--ts-background-primary, #1a1a2e);
-  border: 1px solid var(--ts-accessibility-border, #333);
+  border: 1px solid var(--ts-color-secondary, #444);
   border-radius: 12px;
   transition: background-color 0.2s, border-color 0.2s;
   cursor: pointer;
@@ -441,4 +441,12 @@ select:focus {
 .waiting-dot.single {
   background: #f0ad4e;
   animation: pulse 1.5s infinite;
+}
+
+/* Keyboard focus. TaleSpire's --ts-accessibility-focus is transparent in the
+   default theme and visible in the high contrast theme. */
+button:focus-visible,
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--ts-accessibility-focus, transparent);
+  outline-offset: 2px;
 }

@@ -9,7 +9,7 @@ A Talespire symbiote that connects physical dice rolls from [DiceVision](https:/
 - **Symbiote Indicator**: GMs can verify rolls came from external source
 - **Chat Announcements**: Optional chat messages (to everyone or GM only)
 - **Auto-Reconnect**: Handles connection drops with exponential backoff
-- **Session Persistence**: Session code saved per campaign
+- **Session Persistence**: Session code and options saved per campaign; reconnects when reopened
 
 ## Installation
 
@@ -47,7 +47,7 @@ The symbiote will be available on mod.io for one-click installation.
 ## Options
 
 - **Announce in chat**: Send roll results to chat (default: on)
-- **Chat announcement to**: Choose "Board (everyone)" or "GM only". The dice tray result is always visible to everyone; this only sets who gets the chat line
+- **Chat announcement to**: Choose "Board (everyone)" or "GM only". The dice tray has no GM-only option; this only sets who gets the chat line
 - **Roll label**: Customize the name shown for rolls (default: "Physical Dice")
 
 ## Supported Dice
@@ -57,7 +57,7 @@ The symbiote will be available on mod.io for one-click installation.
 - Mixed dice (e.g., 1d20 + 2d6)
 - Pip d6s (dots) as well as numbered dice
 
-If the camera couldn't read a die, the roll isn't sent to the dice tray: the panel says which die and the symbiote keeps waiting (Roll Once included). Roll again in view of the camera. With the panel closed, a TaleSpire notification tells you instead.
+If the camera couldn't read a die, the roll isn't sent to the dice tray: the panel says which die and the symbiote keeps waiting (Roll Once included). Roll again in view of the camera. With the panel closed (or another symbiote in front), a TaleSpire notification tells you instead, once until a roll goes through; if notifications fail, you get a chat whisper.
 
 The session code and options are saved per campaign, and the symbiote reconnects when you reopen it.
 
